@@ -1,11 +1,5 @@
-import { Geist_Mono } from "next/font/google";
 import Link from "next/link";
 import { useState, useEffect } from "react";
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
 
 const ASCII_LOGO = `
 
@@ -23,7 +17,7 @@ const ASCII_LOGO = `
 `;
 
 const TOTAL_DISK_TB = 3.1
-const TOTAL_MEMORY_MB = 24026
+const TOTAL_RAM_MB = 24026
 
 interface Details {
   release: string;
@@ -41,7 +35,7 @@ const INFO = "https://arnode.asia/info"
 const RELEASE = "https://arnode.asia/ar-io/info"
 // uptime (JSON)
 const UPTIME = "https://arnode.asia/ar-io/healthcheck"
-// everything else (RAW TEXT)
+// ArNS resolution time (RAW TEXT)
 const DETAILS = "https://arnode.asia/ar-io/__gateway_metrics"
 
 function formatUptime(uptime: number) {
@@ -72,6 +66,11 @@ export default function Home() {
         const detailsText = await detailsResponse.text();
         console.log(detailsText);
 
+        // Parse ArNS resolution time from metrics
+        const arnsMatch = detailsText.match(/arns_resolution_time_ms{quantile="0.99"} (\d+\.?\d*)/)
+        console.log(arnsMatch);
+        const arnsResolutionTime = arnsMatch ? (parseFloat(arnsMatch[1]) / 1000).toFixed(2) : -1;
+
         const releaseResponse = await fetch(RELEASE);
         const releaseData = await releaseResponse.json();
         console.log(releaseData);
@@ -83,14 +82,15 @@ export default function Home() {
         const uptimeResponse = await fetch(UPTIME);
         const uptimeData = await uptimeResponse.json();
         console.log(uptimeData);
+
         const data: Details = {
           release: releaseData.release,
           height: infoData.height.toString(),
           uptime: formatUptime(uptimeData.uptime),
-          memory: "...",
-          storage: "...",
-          arnsResolutionTime: "...",
-          cpuUsage: "...",
+          memory: `? MB / ${TOTAL_RAM_MB} MB`,
+          storage: `? GB / ${TOTAL_DISK_TB} TB`,
+          arnsResolutionTime: `${arnsResolutionTime}s`,
+          cpuUsage: `?`,
         }
         setDetails(data);
       } catch (error) {
@@ -103,7 +103,7 @@ export default function Home() {
   }, []);
 
   return (
-    <div className={`min-h-screen bg-zinc-900 text-cyan-400 p-4 ${geistMono.variable} font-mono`}>
+    <div className={`min-h-screen bg-zinc-900 text-cyan-400 p-4`}>
       <div className="max-w-6xl mx-auto">
         {/* System Info Section */}
         <div>
@@ -113,19 +113,17 @@ export default function Home() {
           <pre className="text-cyan-500 whitespace-pre text-xs md:text-sm">
             {ASCII_LOGO}
           </pre>
-          <div className="text-sm space-y-1">
-            <p className="text-cyan-300">gateway@<Link href="https://arnode.asia" className="text-cyan-300">arnode.asia</Link></p>
-            <p className="border-b border-cyan-800 mb-2">----------------</p>
-            <p><span className="text-cyan-300">OS:</span>Ubuntu 22.04 jammy</p>
-            <p><span className="text-cyan-300">CPU:</span> AMD EPYC 9224 24-Core @ 10x 2.496GHz</p>
-            <p><span className="text-cyan-300">CPU Usage:</span> {details.cpuUsage}</p>
-            <p><span className="text-cyan-300">Release:</span> {details.release}</p>
-            <p><span className="text-cyan-300">Height:</span> {details.height}</p>
-            <p><span className="text-cyan-300">Uptime:</span> {details.uptime}</p>
-            <p><span className="text-cyan-300">Memory:</span> {details.memory}</p>
-            <p><span className="text-cyan-300">Storage:</span> {details.storage}</p>
-            <p><span className="text-cyan-300">ArNS Resolution time:</span> {details.arnsResolutionTime}</p>
-          </div>
+          <pre className="text-xs md:text-sm space-y-1">
+            <p className="text-cyan-300 border-b pb-4 mb-4 border-dashed">gateway@<Link href="https://arnode.asia" className="text-cyan-300">arnode.asia</Link> [Release {details.release}] [Block {details.height}]</p>
+
+            <p>OS            : Ubuntu 22.04 jammy</p>
+            <p>CPU           : AMD EPYC 9224 24-Core @ 10x 2.496GHz</p>
+            <p>CPU Usage     : {details.cpuUsage}</p>
+            <p>Uptime        : {details.uptime}</p>
+            <p>Memory        : {details.memory}</p>
+            <p>Storage       : {details.storage}</p>
+            <p>ArNS res time : {details.arnsResolutionTime}</p>
+          </pre>
         </div>
 
         {/* Command History */}
