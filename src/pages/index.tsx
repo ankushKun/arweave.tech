@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { useState, useEffect } from "react";
 
 const ASCII_LOGO = `
@@ -41,6 +42,8 @@ const UPTIME = "https://arnode.asia/ar-io/healthcheck"
 const DETAILS = "https://arnode.asia/ar-io/__gateway_metrics"
 // system metrics (JSON)
 const SYSTEM = "https://api.betteridea.dev/system"
+// Minecraft Status (JSON)
+const MC = "https://mcapi.us/server/status?ip=arnode.asia&port=25565"
 
 function formatUptime(uptime: number) {
   const days = Math.floor(uptime / 86400);
@@ -61,6 +64,11 @@ export default function Home() {
     os: "?",
     arnsResolutionTime: "?",
     cpuUsage: "?",
+  });
+  const [mcStatus, setMcStatus] = useState({
+    online: false,
+    players: 0,
+    maxPlayers: 50,
   });
 
   const [typedCommand, setTypedCommand] = useState("");
@@ -120,6 +128,16 @@ export default function Home() {
         const systemResponse = await fetch(SYSTEM);
         const systemData = await systemResponse.json();
         console.log(systemData);
+
+        const mcResponse = await fetch(MC);
+        const mcData = await mcResponse.json();
+        console.log(mcData);
+
+        setMcStatus({
+          online: mcData.online,
+          players: mcData.players.now,
+          maxPlayers: mcData.players.max,
+        });
 
         const data: Details = {
           release: releaseData.release,
@@ -286,9 +304,28 @@ export default function Home() {
                   <div className="terminal-command">
                     <p className="text-cyan-300 mb-3 flex items-center gap-2">
                       <span className="text-gray-500">$</span> ls /minecraft
+                      {mcStatus.online ? (
+                        // online indicator
+                        <div className="ml-2 flex flex-row gap-4 text-gray-400 items-center">
+                          <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                          <p>online</p>
+                        </div>
+                      ) : (
+                        // offline indicator
+                        <div className="ml-2 flex flex-row gap-4 text-gray-400 items-center">
+                          <div className="w-2 h-2 bg-red-500 rounded-full"></div>
+                          <p>offline</p>
+                        </div>
+                      )}
                     </p>
-                    <div className="ml-6 md:grid-cols-2 gap-4 text-gray-400">
-                      <p>You can also play multiplayer minecraft on our gateway by adding <span className="text-cyan-300">arnode.asia</span> as a server in your minecraft multiplayer</p>
+                    <div className="ml-6 flex flex-row gap-4 text-gray-400 items-center">
+                      <Link href="https://arnode.asia/play" target="_blank">
+                        <Image src="/mc.png" alt="Minecraft" width={30} height={30} />
+                      </Link>
+                      <p>To play minecraft connect to <span className="text-cyan-300">arnode.asia</span> in your minecraft 1.21.4 client</p>
+                      <p className="text-gray-500 text-xs">
+                        [{mcStatus.players}/{mcStatus.maxPlayers}] players online
+                      </p>
                     </div>
                   </div>
                 </div>
