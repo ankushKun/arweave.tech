@@ -3,18 +3,16 @@ import Image from "next/image";
 import { useState, useEffect } from "react";
 
 const ASCII_LOGO = `
-
- ▄▄▄       ██▀███   ███▄    █  ▒█████  ▓█████▄ ▓█████ 
-▒████▄    ▓██ ▒ ██▒ ██ ▀█   █ ▒██▒  ██▒▒██▀ ██▌▓█   ▀ 
-▒██  ▀█▄  ▓██ ░▄█ ▒▓██  ▀█ ██▒▒██░  ██▒░██   █▌▒███   
-░██▄▄▄▄██ ▒██▀▀█▄  ▓██▒  ▐▌██▒▒██   ██░░▓█▄   ▌▒▓█  ▄ 
- ▓█   ▓██▒░██▓ ▒██▒▒██░   ▓██░░ ████▓▒░░▒████▓ ░▒████▒
- ▒▒   ▓▒█░░ ▒▓ ░▒▓░░ ▒░   ▒ ▒ ░ ▒░▒░▒░  ▒▒▓  ▒ ░░ ▒░ ░
-  ▒   ▒▒ ░  ░▒ ░ ▒░░ ░░   ░ ▒░  ░ ▒ ▒░  ░ ▒  ▒  ░ ░  ░
-  ░   ▒     ░░   ░    ░   ░ ░ ░ ░ ░ ▒   ░ ░  ░    ░   
-      ░  ░   ░              ░     ░ ░     ░       ░  ░
-                                        ░             
-
+ ▄▄▄       ██▀███   █     █░▓█████ ▄▄▄    ██▒   █▓▓█████ 
+▒████▄    ▓██ ▒ ██▒▓█░ █ ░█░▓█   ▀▒████▄ ▓██░   █▒▓█   ▀ 
+▒██  ▀█▄  ▓██ ░▄█ ▒▒█░ █ ░█ ▒███  ▒██  ▀█▄▓██  █▒░▒███   
+░██▄▄▄▄██ ▒██▀▀█▄  ░█░ █ ░█ ▒▓█  ▄░██▄▄▄▄██▒██ █░░▒▓█  ▄ 
+ ▓█   ▓██▒░██▓ ▒██▒░░██▒██▓ ░▒████▒▓█   ▓██▒▒▀█░  ░▒████▒
+ ▒▒   ▓▒█░░ ▒▓ ░▒▓░░ ▓░▒ ▒  ░░ ▒░ ░▒▒   ▓▒█░░ ▐░  ░░ ▒░ ░
+  ▒   ▒▒ ░  ░▒ ░ ▒░  ▒ ░ ░   ░ ░  ░ ▒   ▒▒ ░░ ░░   ░ ░  ░
+  ░   ▒     ░░   ░   ░   ░     ░    ░   ▒     ░░     ░   
+      ░  ░   ░         ░       ░  ░     ░  ░   ░     ░  ░
+                                              ░          
 `;
 
 const TOTAL_DISK_TB = 3.1
@@ -33,17 +31,17 @@ interface Details {
 }
 
 // height, peers (JSON)
-const INFO = "https://arnode.asia/info"
+const INFO = "https://arweave.tech/info"
 // release (JSON)
-const RELEASE = "https://arnode.asia/ar-io/info"
+const RELEASE = "https://arweave.tech/ar-io/info"
 // uptime (JSON)
-const UPTIME = "https://arnode.asia/ar-io/healthcheck"
+const UPTIME = "https://arweave.tech/ar-io/healthcheck"
 // ArNS resolution time (RAW TEXT)
-const DETAILS = "https://arnode.asia/ar-io/__gateway_metrics"
+const DETAILS = "https://arweave.tech/ar-io/__gateway_metrics"
 // system metrics (JSON)
-const SYSTEM = "https://api.betteridea.dev/system"
+const SYSTEM = "https://api.arweave.tech/system"
 // Minecraft Status (JSON)
-const MC = "https://mcapi.us/server/status?ip=arnode.asia&port=25565"
+const MC = "https://mcapi.us/server/status?ip=arweave.tech&port=25565"
 
 function formatUptime(uptime: number) {
   const days = Math.floor(uptime / 86400);
@@ -184,7 +182,7 @@ export default function Home() {
               <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
               <div className="w-3 h-3 rounded-full bg-green-500"></div>
             </div>
-            <div className="text-center flex-1 text-sm text-gray-400">arnode.asia - Terminal</div>
+            <div className="text-center flex-1 text-sm text-gray-400">arweave.tech - Terminal</div>
             {isLoading && (
               <div className="absolute right-2 flex items-center gap-2 text-sm text-cyan-300">
                 <div className="animate-spin">[-]</div>
@@ -212,7 +210,7 @@ export default function Home() {
                     <pre className="text-xs lg:text-sm space-y-2">
                       <p className="text-cyan-300 border-b pb-4 mb-4 border-cyan-800/30 flex items-center gap-2">
                         <span className="animate-pulse">⚡</span>
-                        gateway@<Link href="https://arnode.asia" className="text-cyan-300 hover:text-cyan-400 transition-colors -ml-2">arnode.asia</Link>
+                        gateway@<Link href="https://arweave.tech" className="text-cyan-300 hover:text-cyan-400 transition-colors -ml-2">arweave.tech</Link>
                         <span className="text-gray-500">[Release {details.release}]</span>
                         <span className="text-gray-500">[Block {details.height}]</span>
                       </p>
@@ -235,7 +233,7 @@ export default function Home() {
                     </p>
                     <div className="ml-6 text-gray-400 flex flex-col md:flex-row gap-4 md:gap-10">
                       <p>Arweave Gateway Managed by <Link href="https://betteridea.dev" target="_blank" className="text-cyan-300 hover:text-cyan-400 transition-colors">BetterIDEa</Link>.</p>
-                      <Link href="https://gateways.arnode.asia/#/gateways/7oTsZkXoFGh3k99rrYYOzeQzQ1Qap98BnuSvlDYIH6Y" target="_blank" className="text-cyan-300 hover:text-cyan-400 transition-colors mx-auto">Stake on our gateway to earn rewards</Link>
+                      <Link href="https://gateways.arweave.tech/#/gateways/7oTsZkXoFGh3k99rrYYOzeQzQ1Qap98BnuSvlDYIH6Y" target="_blank" className="text-cyan-300 hover:text-cyan-400 transition-colors mx-auto">Stake on our gateway to earn rewards</Link>
                     </div>
                   </div>
 
@@ -258,7 +256,7 @@ export default function Home() {
                         {
                           name: "Visual AO",
                           desc: "No Code Programming for AO processes",
-                          link: "https://visual-ao.arnode.asia"
+                          link: "https://visual-ao.arweave.tech"
                         },
                         {
                           name: "APM CLI Tool",
@@ -273,17 +271,17 @@ export default function Home() {
                         {
                           name: "ArLink",
                           desc: "1 click deployments on Arweave",
-                          link: "https://arlink.arnode.asia"
+                          link: "https://arlink.arweave.tech"
                         },
                         {
                           name: "Network Portal",
                           desc: "Explore & stake on Gateways",
-                          link: "https://gateways.arnode.asia"
+                          link: "https://gateways.arweave.tech"
                         },
                         {
                           name: "ArNS App",
                           desc: "Explore & buy ArNS names",
-                          link: "https://arns.arnode.asia"
+                          link: "https://arns.arweave.tech"
                         }
                       ].map((tool, i) => (
                         <div key={i} className="flex items-center gap-3 group">
@@ -319,10 +317,10 @@ export default function Home() {
                       )}
                     </p>
                     <div className="ml-6 flex flex-row gap-4 text-gray-400 items-center">
-                      <Link href="https://arnode.asia/play" target="_blank">
+                      <Link href="https://arweave.tech/play" target="_blank">
                         <Image src="/mc.png" alt="Minecraft" width={30} height={30} />
                       </Link>
-                      <p>To play minecraft connect to <span className="text-cyan-300">arnode.asia</span> in your minecraft 1.21.4 client</p>
+                      <p>To play minecraft connect to <span className="text-cyan-300">arweave.tech</span> in your minecraft 1.21.4 client</p>
                       <p className="text-gray-500 text-xs">
                         [{mcStatus.players}/{mcStatus.maxPlayers}] players online
                       </p>
