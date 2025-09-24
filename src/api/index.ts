@@ -1,35 +1,21 @@
 import { Hono } from 'hono'
-import { execSync } from 'child_process';
+import dotenv from 'dotenv'
+dotenv.config()
+import { cors } from 'hono/cors'
 
-
+import health from './routes/health'
+import system from './routes/system'
+import lcs from './routes/lcs'
+import subspace from './routes/subspace'
 
 const app = new Hono()
+app.use(cors({ origin: '*' }))
 
-app.get('/', (c) => c.text("OK"))
-app.get('/health', (c) => c.text("OK"))
-
-app.get('/system', (c) => {
-    // Execute screenfetch and strip ANSI escape codes
-    const screenfetch = execSync('screenfetch -n')
-        .toString()
-        .replace(/\u001b\[[0-9;]*m/g, '') // Remove ANSI color codes
-        .replace(/\u001b\[\d+[A-Z]/g, ''); // Remove ANSI control sequences
-
-    // Extract system information using regex
-    const cpuMatch = screenfetch.match(/CPU:\s*(.*)/);
-    const ramMatch = screenfetch.match(/RAM:\s*(.*)/);
-    const diskMatch = screenfetch.match(/Disk:\s*(.*)/);
-    const osMatch = screenfetch.match(/OS:\s*(.*)/);
-
-    const systemInfo = {
-        cpu: cpuMatch ? cpuMatch[1].trim() : null,
-        ram: ramMatch ? ramMatch[1].trim() : null,
-        disk: diskMatch ? diskMatch[1].trim() : null,
-        os: osMatch ? osMatch[1].trim() : null
-    };
-
-    return c.json(systemInfo)
-})
+// Mount route modules
+app.route('/', health)
+app.route('/', system)
+app.route('/', lcs)
+app.route('/', subspace)
 
 export default {
     port: 3001,
