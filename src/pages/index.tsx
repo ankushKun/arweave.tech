@@ -39,7 +39,7 @@ const UPTIME = "https://arweave.tech/ar-io/healthcheck"
 // ArNS resolution time (RAW TEXT)
 const DETAILS = "https://arweave.tech/ar-io/__gateway_metrics"
 // system metrics (JSON)
-const SYSTEM = "https://api.arweave.tech/system"
+const SYSTEM = "https://arweave.tech/api/system"
 // Minecraft Status (JSON)
 const MC = "https://mcapi.us/server/status?ip=arweave.tech&port=25565"
 
