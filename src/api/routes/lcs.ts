@@ -14,11 +14,12 @@ lcs.get('/cat/process', (c) => {
     return c.json({ process })
 })
 
-lcs.post('/cat/process', (c) => {
+lcs.post('/cat/process', async (c) => {
     if (!fs.existsSync(filepath)) {
         fs.writeFileSync(filepath, '')
     }
-    const process = c.req.param('process') || ''
+    const process = (await c.req.json()).process || ''
+    console.log(process)
     fs.writeFileSync(filepath, process)
     return c.json({ process })
 })
