@@ -11,7 +11,7 @@ lcs.get('/cat/process', (c) => {
         fs.writeFileSync(filepath, '')
     }
     const process = fs.readFileSync(filepath, 'utf8') || ''
-    return c.json({ process })
+    return c.text(process)
 })
 
 lcs.post('/cat/process', async (c) => {
@@ -21,7 +21,7 @@ lcs.post('/cat/process', async (c) => {
     const process = (await c.req.json()).process || ''
     console.log(process)
     fs.writeFileSync(filepath, process)
-    return c.json({ process })
+    return c.text(process)
 })
 
 export default lcs
