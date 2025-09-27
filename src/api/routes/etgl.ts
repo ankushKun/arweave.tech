@@ -102,6 +102,56 @@ type UserData = {
     }
 }
 
+type AllProfiles = {
+    [userid: string]: UserData
+}
+
+async function getAllProfiles(): Promise<AllProfiles> {
+    try {
+        // Check if file exists
+        if (!fs.existsSync(storage_path)) {
+            return {}
+        }
+
+        // Read and parse the file
+        const fileContent = fs.readFileSync(storage_path, 'utf8')
+        if (!fileContent.trim()) {
+            return {}
+        }
+
+        const profiles: Record<string, any> = JSON.parse(fileContent)
+        console.log(`Retrieved ${Object.keys(profiles).length} profiles from regular storage`)
+        return profiles
+
+    } catch (error) {
+        console.error('Error reading all profiles:', error)
+        return {}
+    }
+}
+
+async function getAllProfilesByUrl(): Promise<AllProfiles> {
+    try {
+        // Check if file exists
+        if (!fs.existsSync(url_storage_path)) {
+            return {}
+        }
+
+        // Read and parse the file
+        const fileContent = fs.readFileSync(url_storage_path, 'utf8')
+        if (!fileContent.trim()) {
+            return {}
+        }
+
+        const profiles: Record<string, any> = JSON.parse(fileContent)
+        console.log(`Retrieved ${Object.keys(profiles).length} profiles from URL storage`)
+        return profiles
+
+    } catch (error) {
+        console.error('Error reading all URL profiles:', error)
+        return {}
+    }
+}
+
 // Function to fetch and parse profile data
 async function fetchProfileData(url: string, userid: string): Promise<any | null> {
     try {
@@ -375,6 +425,56 @@ etgl.get('/etgl/profile', async (c) => {
     } catch (error) {
         console.error(error)
         return c.json({ error: 'Failed to fetch profile data' }, 500)
+    }
+})
+
+etgl.get('/etgl/profile-all', async (c) => {
+    try {
+        // Get query parameter to determine which storage to use
+        const type = c.req.query('type') // 'userid' (default), 'url', or 'both'
+
+        let result: any = {}
+
+        if (type === 'url') {
+            // Only get profiles stored by URL
+            const urlProfiles = await getAllProfilesByUrl()
+            result = {
+                type: 'url',
+                count: Object.keys(urlProfiles).length,
+                profiles: urlProfiles
+            }
+        } else if (type === 'both') {
+            // Get both types
+            const profiles = await getAllProfiles()
+            const urlProfiles = await getAllProfilesByUrl()
+
+            result = {
+                type: 'both',
+                userid_storage: {
+                    count: Object.keys(profiles).length,
+                    profiles: profiles
+                },
+                url_storage: {
+                    count: Object.keys(urlProfiles).length,
+                    profiles: urlProfiles
+                },
+                total_count: Object.keys(profiles).length + Object.keys(urlProfiles).length
+            }
+        } else {
+            // Default: get profiles stored by user ID
+            const profiles = await getAllProfiles()
+            result = {
+                type: 'userid',
+                count: Object.keys(profiles).length,
+                profiles: profiles
+            }
+        }
+
+        return c.json(result)
+
+    } catch (error) {
+        console.error('Error getting all profiles:', error)
+        return c.json({ error: 'Failed to retrieve profiles' }, 500)
     }
 })
 
