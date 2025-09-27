@@ -293,11 +293,31 @@ function handleWebSocketMessage(ws: WebSocket, message: WSMessage) {
     }
 }
 
-function setGender(key: string, gender: Gender) {
+function setGender(key: string, gender: Gender): boolean {
+    console.log(`Attempting to set gender for key: ${key}`)
     const profile = getProfile(key)
-    if (!profile) { return }
+    if (!profile) {
+        console.log(`Profile not found for key: ${key}`)
+        return false
+    }
+
+    // Ensure user object exists
+    if (!profile.user) {
+        console.log(`Profile user object missing for key: ${key}`)
+        profile.user = {}
+    }
+
+    console.log(`Setting gender from ${profile.user.gender} to ${gender} for key: ${key}`)
     profile.user.gender = gender
-    saveProfile(key, profile)
+
+    try {
+        saveProfile(key, profile)
+        console.log(`Successfully set gender to ${gender} for key: ${key}`)
+        return true
+    } catch (error) {
+        console.error(`Failed to save profile after setting gender for key: ${key}`, error)
+        return false
+    }
 }
 
 function saveProfile(key: string, data: any) {
@@ -825,11 +845,15 @@ etgl.post("/etgl/set-gender/:id", async (c) => {
     const avlGenders: Gender[] = ["M", "F"]
     if (!gender) { return c.json({ error: 'Gender parameter is required' }, 400) }
     if (!avlGenders.includes(gender)) { return c.json({ error: 'Invalid gender parameter, should be M/F' }, 400) }
-    const profile = await getProfile(userid)
+    const profile = getProfile(userid) // Remove await since getProfile is not async
+    console.log("Profile found:", profile ? "Yes" : "No")
     if (!profile) {
         return c.json({ error: 'Profile not found' }, 404)
     }
-    setGender(userid, gender)
+    const result = setGender(userid, gender)
+    if (!result) {
+        return c.json({ error: 'Failed to set gender' }, 500)
+    }
     return c.json({ message: 'Gender set successfully' })
 })
 
