@@ -1,0 +1,85 @@
+{
+  "2ovjftk": {
+    "uuid": "2ovjftk",
+    "self": false,
+    "attendeeTypes": [
+      "hacker"
+    ],
+    "user": {
+      "uuid": "fd0pz",
+      "name": "Ayush Kansal",
+      "title": null,
+      "bio": null,
+      "avatar": null
+    },
+    "event": {
+      "slug": "newdelhi",
+      "name": "ETHGlobal New Delhi",
+      "status": "future",
+      "squareLogo": {
+        "fullUrl": "https://ethglobal.b0bd725bc77a3ea7cd3826627d01fcb6.r2.cloudflarestorage.com/events/5h9sr/logo/1731786447947_delhi.svg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=dd28f7ba85ca3162a53d5c60b5f3dd05%2F20250927%2Fauto%2Fs3%2Faws4_request&X-Amz-Date=20250927T095509Z&X-Amz-Expires=3600&X-Amz-Signature=f07dde212f64b9c9a47e10987b50e914745526346f5282056c004532fd56c0f4&X-Amz-SignedHeaders=host&x-amz-checksum-mode=ENABLED&x-id=GetObject"
+      },
+      "timezone": {
+        "name": "Asia/Kolkata"
+      }
+    },
+    "lastUpdated": "2025-09-27T09:55:10.022Z",
+    "cached": true
+  },
+  "1g7am2r": {
+    "uuid": "1g7am2r",
+    "self": false,
+    "attendeeTypes": [
+      "hacker"
+    ],
+    "user": {
+      "uuid": "3jajg",
+      "name": "Karan Singh",
+      "title": null,
+      "bio": null,
+      "avatar": {
+        "fullUrl": "https://ethglobal.b0bd725bc77a3ea7cd3826627d01fcb6.r2.cloudflarestorage.com/users/3jajg/images/1758959561089_1000008853.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=dd28f7ba85ca3162a53d5c60b5f3dd05%2F20250927%2Fauto%2Fs3%2Faws4_request&X-Amz-Date=20250927T095332Z&X-Amz-Expires=3600&X-Amz-Signature=44f"
+      }
+    },
+    "event": {
+      "slug": "newdelhi",
+      "name": "ETHGlobal New Delhi",
+      "status": "future",
+      "squareLogo": {
+        "fullUrl": "https://ethglobal.b0bd725bc77a3ea7cd3826627d01fcb6.r2.cloudflarestorage.com/events/5h9sr/logo/1731786447947_delhi.svg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=dd28f7ba85ca3162a53d5c60b5f3dd05%2F20250927%2Fauto%2Fs3%2Faws4_request&X-Amz-Date=20250927T095332Z&X-Amz-Expires=3600&X-Amz-Signature=2745c33df6de825330a3461859bdaa4a60ec5a8c56f2026867386b32b6aabb87&X-Amz-SignedHeaders=host&x-amz-checksum-mode=ENABLED&x-id=GetObject"
+      },
+      "timezone": {
+        "name": "Asia/Kolkata"
+      }
+    },
+    "lastUpdated": "2025-09-27T09:53:32.762Z",
+    "cached": true
+  },
+  "2qj3oud": {
+    "uuid": "2qj3oud",
+    "self": false,
+    "attendeeTypes": [
+      "hacker"
+    ],
+    "user": {
+      "uuid": "ccyup",
+      "name": "Ashutosh Mittal",
+      "title": null,
+      "bio": "Hi, I am Ashutosh, a frontend developer. I am pursuing my BE degree in Computer Science Specialization in Blockchain Technology. I am knowledge seeker guy and curious person. I am passionate about staying up to date with the latest trends and technology.",
+      "avatar": null
+    },
+    "event": {
+      "slug": "newdelhi",
+      "name": "ETHGlobal New Delhi",
+      "status": "future",
+      "squareLogo": {
+        "fullUrl": "https://ethglobal.b0bd725bc77a3ea7cd3826627d01fcb6.r2.cloudflarestorage.com/events/5h9sr/logo/1731786447947_delhi.svg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=dd28f7ba85ca3162a53d5c60b5f3dd05%2F20250927%2Fauto%2Fs3%2Faws4_request&X-Amz-Date=20250927T095428Z&X-Amz-Expires=3600&X-Amz-Signature=d095e60c537c542f1b508ee1446def828e53fd23024ce19a51f1d580808e52bd&X-Amz-SignedHeaders=host&x-amz-checksum-mode=ENABLED&x-id=GetObject"
+      },
+      "timezone": {
+        "name": "Asia/Kolkata"
+      }
+    },
+    "lastUpdated": "2025-09-27T09:54:28.822Z",
+    "cached": true
+  }
+}
