@@ -85,7 +85,7 @@ etgl.get('/etgl/profile', async (c) => {
         const id = response.request.path.split("/")[2] as string
 
         // proxy /etgl/profile/:id
-        return c.redirect(`/etgl/profile/${id}`)
+        return c.redirect(`./${id}`)
 
 
     } catch (error) {
