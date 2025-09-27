@@ -3,7 +3,7 @@
     "$L14",
     null,
     {
-        "uuid": "1g7am2r",
+        "uuid": "2ovjftk",
         "self": false,
         "attendeeTypes": [
             "hacker"
@@ -13,20 +13,18 @@
             "name": "ETHGlobal New Delhi",
             "status": "future",
             "squareLogo": {
-                "fullUrl": "https://ethglobal.b0bd725bc77a3ea7cd3826627d01fcb6.r2.cloudflarestorage.com/events/5h9sr/logo/1731786447947_delhi.svg?X-Amz-Algorithm=AWS4-HMAC-SHA256u0026X-Amz-Content-Sha256=UNSIGNED-PAYLOADu0026X-Amz-Credential=dd28f7ba85ca3162a53d5c60b5f3dd05%2F20250927%2Fauto%2Fs3%2Faws4_requestu0026X-Amz-Date=20250927T080720Zu0026X-Amz-Expires=3600u0026X-Amz-Signature=0ab3c4b3a56bc8d62ed2975a54d5f677374577f2fe218565184bf099d7d8b586u0026X-Amz-SignedHeaders=hostu0026x-amz-checksum-mode=ENABLEDu0026x-id=GetObject"
+                "fullUrl": "https://ethglobal.b0bd725bc77a3ea7cd3826627d01fcb6.r2.cloudflarestorage.com/events/5h9sr/logo/1731786447947_delhi.svg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=dd28f7ba85ca3162a53d5c60b5f3dd05%2F20250927%2Fauto%2Fs3%2Faws4_request&X-Amz-Date=20250927T092417Z&X-Amz-Expires=3600&X-Amz-Signature=9f351cdfd2b348e9efa2930028163f266f812f4f29bac2c64a2f7375a5f3a090&X-Amz-SignedHeaders=host&x-amz-checksum-mode=ENABLED&x-id=GetObject"
             },
             "timezone": {
                 "name": "Asia/Kolkata"
             }
         },
         "user": {
-            "uuid": "3jajg",
-            "name": "Karan Singh",
+            "uuid": "fd0pz",
+            "name": "Ayush Kansal",
             "title": null,
             "bio": null,
-            "avatar": {
-                "fullUrl": "https://ethglobal.b0bd725bc77a3ea7cd3826627d01fcb6.r2.cloudflarestorage.com/users/3jajg/images/1758959561089_1000008853.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256u0026X-Amz-Content-Sha256=UNSIGNED-PAYLOADu0026X-Amz-Credential=dd28f7ba85ca3162a53d5c60b5f3dd05%2F20250927%2Fauto%2Fs3%2Faws4_requestu0026X-Amz-Date=20250927T080720Zu0026X-Amz-Expires=3600u0026X-Amz-Signature=965"
-            }
+            "avatar": null
         }
     }
 ]
