@@ -25,7 +25,7 @@ subspace.get('/subspace/process', (c) => {
     return c.text(processId)
 })
 
-subspace.post('/subspace/process', async (c) => {
+subspace.post('/subspace/respawn', async (c) => {
 
     const authHeader = c.req.header('Authorization')
     verifyBasicAuth(authHeader || '')
@@ -36,6 +36,8 @@ subspace.post('/subspace/process', async (c) => {
     const processId = (await c.req.json()).process || ''
     fs.writeFileSync(filepath, processId)
     return c.text(processId)
+
+
 })
 
 export default subspace

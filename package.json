@@ -5,11 +5,14 @@
   "scripts": {
     "dev": "next dev",
     "api": "bun run src/api/index.ts",
+    "api:dev": "bun --watch src/api/index.ts",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
   },
   "dependencies": {
+    "axios": "^1.12.2",
+    "cheerio": "^1.1.2",
     "dotenv": "^17.2.2",
     "hono": "^4.9.8",
     "next": "15.2.3",

@@ -7,6 +7,7 @@ import health from './routes/health'
 import system from './routes/system'
 import lcs from './routes/lcs'
 import subspace from './routes/subspace'
+import etgl from './routes/etgl'
 
 const app = new Hono()
 app.use(cors({ origin: '*' }))
@@ -16,6 +17,7 @@ app.route('/', health)
 app.route('/', system)
 app.route('/', lcs)
 app.route('/', subspace)
+app.route('/', etgl)
 
 export default {
     port: 3001,
