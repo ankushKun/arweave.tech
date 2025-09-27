@@ -821,6 +821,7 @@ etgl.get('/etgl/profile-all', async (c) => {
 etgl.post("/etgl/set-gender/:id", async (c) => {
     const userid = c.req.param('id')
     const gender = c.req.query('gender') as Gender
+    console.log("Setting gender for", userid, "to", gender)
     const avlGenders: Gender[] = ["M", "F"]
     if (!gender) { return c.json({ error: 'Gender parameter is required' }, 400) }
     if (!avlGenders.includes(gender)) { return c.json({ error: 'Invalid gender parameter, should be M/F' }, 400) }
