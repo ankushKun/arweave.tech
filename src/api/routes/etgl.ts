@@ -169,31 +169,46 @@ async function fetchProfileData(url: string, userid: string): Promise<any | null
         let max = scriptTags.length
 
         let src = ""
-        scriptTags.each((index, element) => {
+        let parsedData = null
+        let found = false
+        for (const element of scriptTags) {
             const scriptContent = $(element).text()
-            if (scriptContent.includes("ETHGlobal New Delhi") || (index == max - 2)) {
+            console.log(scriptContent, "\n")
+            if (found) {
+                const rest = scriptContent.replace("self.__next_f.push([1,\"", "").replace(`\\n"])`, '')
+                src += rest
+            }
+            if (scriptContent.includes("6:")) {
                 src = scriptContent.split("6:")[1].slice(0, -3)
-                console.log("profile")
+                found = true
             }
-            else if (index == max - 1) {
-                const pfpPart = scriptContent.replace("self.__next_f.push([1,\"", "")
-                // Remove the trailing characters more carefully
-                let cleanPfpPart = pfpPart
-                if (cleanPfpPart.endsWith('"])\n')) {
-                    cleanPfpPart = cleanPfpPart.slice(0, -4)
-                } else if (cleanPfpPart.endsWith('"]')) {
-                    cleanPfpPart = cleanPfpPart.slice(0, -2)
-                } else if (cleanPfpPart.endsWith('"]\n')) {
-                    cleanPfpPart = cleanPfpPart.slice(0, -3)
-                } else if (cleanPfpPart.endsWith('"\n')) {
-                    cleanPfpPart = cleanPfpPart.slice(0, -2)
-                } else if (cleanPfpPart.endsWith('"')) {
-                    cleanPfpPart = cleanPfpPart.slice(0, -1)
-                }
-                src += cleanPfpPart
-                console.log("pfp")
+            try {
+                parsedData = JSON.parse(src)
+                break
+            } catch {
+                continue
             }
-        })
+        }
+        // scriptTags.each((index, element) => {
+        //     // else if (index == max - 1) {
+        //     //     const pfpPart = scriptContent.replace("self.__next_f.push([1,\"", "")
+        //     //     // Remove the trailing characters more carefully
+        //     //     let cleanPfpPart = pfpPart
+        //     //     if (cleanPfpPart.endsWith('"])\n')) {
+        //     //         cleanPfpPart = cleanPfpPart.slice(0, -4)
+        //     //     } else if (cleanPfpPart.endsWith('"]')) {
+        //     //         cleanPfpPart = cleanPfpPart.slice(0, -2)
+        //     //     } else if (cleanPfpPart.endsWith('"]\n')) {
+        //     //         cleanPfpPart = cleanPfpPart.slice(0, -3)
+        //     //     } else if (cleanPfpPart.endsWith('"\n')) {
+        //     //         cleanPfpPart = cleanPfpPart.slice(0, -2)
+        //     //     } else if (cleanPfpPart.endsWith('"')) {
+        //     //         cleanPfpPart = cleanPfpPart.slice(0, -1)
+        //     //     }
+        //     //     src += cleanPfpPart
+        //     //     console.log("pfp")
+        //     // }
+        // })
         console.log(src)
 
         // Parse the combined JSON string
@@ -240,18 +255,38 @@ async function fetchProfileData(url: string, userid: string): Promise<any | null
                     }
                 }
 
-                // Unescape the JSON string properly
+                // Unescape the JSON string properly - handle problematic sequences first
                 cleanStr = cleanStr
+                    // CRITICAL: Handle backslash-newline sequences that break JSON parsing
+                    .replace(/\\\n/g, '\\n')        // Convert literal backslash-newline to escaped newline
+                    .replace(/\\\r/g, '\\r')        // Convert literal backslash-carriage return
+                    // Handle URL-encoded characters that might be causing issues
+                    .replace(/\\u0026/g, '&')       // Fix escaped ampersands in URLs
                     .replace(/\\"/g, '"')           // Unescape quotes
-                    .replace(/\\n/g, '\n')          // Unescape newlines
+                    .replace(/\\n/g, '\n')          // Unescape newlines (after fixing literal ones)
                     .replace(/\\r/g, '\r')          // Unescape carriage returns
                     .replace(/\\t/g, '\t')          // Unescape tabs
+                    // Only process valid 4-digit unicode escapes, not partial ones
                     .replace(/\\u([0-9a-fA-F]{4})/g, (match, hex) => {
-                        return String.fromCharCode(parseInt(hex, 16))
-                    })                              // Unescape unicode
+                        // Double-check it's a valid hex sequence
+                        if (hex.length === 4 && /^[0-9a-fA-F]{4}$/.test(hex)) {
+                            return String.fromCharCode(parseInt(hex, 16))
+                        }
+                        return match // Return original if not valid
+                    })
                     .replace(/\\\\/g, '\\')         // Unescape backslashes (do this last)
 
                 console.log("Cleaned string:", cleanStr.substring(0, 200) + "..." + cleanStr.substring(cleanStr.length - 50))
+
+                // Additional debugging for problematic characters
+                const problematicChars = cleanStr.match(/\\u[0-9a-fA-F]{0,3}[^0-9a-fA-F]|\\[^"nrt\\u]/g)
+                if (problematicChars) {
+                    console.log("Found potentially problematic escape sequences:", problematicChars)
+                    // Try to fix common problematic patterns
+                    cleanStr = cleanStr
+                        .replace(/\\\n/g, '\\n')    // Fix any remaining backslash-newline
+                        .replace(/\\\r/g, '\\r')    // Fix any remaining backslash-carriage return
+                }
 
                 // Additional validation before parsing
                 if (!cleanStr.trim()) {
@@ -271,17 +306,39 @@ async function fetchProfileData(url: string, userid: string): Promise<any | null
                     parsedArray = JSON.parse(cleanStr)
                 } catch (finalParseError) {
                     console.error("Final parse error:", finalParseError)
-                    // Try one more fix - remove any trailing commas
-                    const fixedStr = cleanStr
+
+                    // Try multiple fixes in sequence
+                    let fixedStr = cleanStr
                         .replace(/,\s*}/g, '}')     // Remove trailing commas in objects
                         .replace(/,\s*]/g, ']')     // Remove trailing commas in arrays
+                        // Fix any remaining literal newlines in strings (simple approach)
+                        .replace(/([^\\])\n/g, '$1\\n')             // Escape unescaped newlines
+                        .replace(/([^\\])\r/g, '$1\\r')             // Escape unescaped carriage returns
+                        .replace(/^\n/g, '\\n')                     // Handle newlines at start
+                        .replace(/^\r/g, '\\r')                     // Handle carriage returns at start
+                        // Fix any remaining malformed escape sequences
+                        .replace(/\\u(?![0-9a-fA-F]{4})/g, '\\\\u')  // Escape incomplete unicode sequences
+                        .replace(/\\(?!["\\/bfnrtu])/g, '\\\\')      // Escape invalid escape characters (added 'u' to valid list)
 
                     try {
                         parsedArray = JSON.parse(fixedStr)
-                        console.log("Parse succeeded after comma fix")
+                        console.log("Parse succeeded after comprehensive fix")
                     } catch (ultimateError) {
                         console.error("Ultimate parse error:", ultimateError)
                         console.error("Final string sample:", fixedStr.substring(0, 200) + "...")
+
+                        // Last resort: try to extract just the data we need using regex
+                        try {
+                            const dataMatch = cleanStr.match(/"uuid":"[^"]+","self":(true|false),"attendeeTypes":\[[^\]]*\],"event":\{[^}]+\},"user":\{[^}]+\}/)
+                            if (dataMatch) {
+                                console.log("Attempting regex extraction as last resort")
+                                // This is a fallback - we'd need to implement proper extraction here
+                                // For now, just return null and let the cache handle it
+                            }
+                        } catch (regexError) {
+                            console.error("Regex extraction also failed:", regexError)
+                        }
+
                         return null
                     }
                 }
