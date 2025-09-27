@@ -166,153 +166,160 @@ async function fetchProfileData(url: string, userid: string): Promise<any | null
         const scriptTags = $('script')
 
         let foundData: any | null = null
+        let max = scriptTags.length
+
+        let src = ""
         scriptTags.each((index, element) => {
             const scriptContent = $(element).text()
-            if (!scriptContent.includes("ETHGlobal New Delhi")) return
+            if (scriptContent.includes("ETHGlobal New Delhi") || (index == max - 2)) {
+                src = scriptContent.split("6:")[1].slice(0, -3)
+                console.log("profile")
+            }
+            else if (index == max - 1) {
+                const pfpPart = scriptContent.replace("self.__next_f.push([1,\"", "")
+                // Remove the trailing characters more carefully
+                let cleanPfpPart = pfpPart
+                if (cleanPfpPart.endsWith('"])\n')) {
+                    cleanPfpPart = cleanPfpPart.slice(0, -4)
+                } else if (cleanPfpPart.endsWith('"]')) {
+                    cleanPfpPart = cleanPfpPart.slice(0, -2)
+                } else if (cleanPfpPart.endsWith('"]\n')) {
+                    cleanPfpPart = cleanPfpPart.slice(0, -3)
+                } else if (cleanPfpPart.endsWith('"\n')) {
+                    cleanPfpPart = cleanPfpPart.slice(0, -2)
+                } else if (cleanPfpPart.endsWith('"')) {
+                    cleanPfpPart = cleanPfpPart.slice(0, -1)
+                }
+                src += cleanPfpPart
+                console.log("pfp")
+            }
+        })
+        console.log(src)
 
+        // Parse the combined JSON string
+        try {
+            let parsedArray
             try {
-                // More careful extraction - find the JSON string boundaries
-                const afterSplit = scriptContent.split("6:")[1]
-                console.log("After split:", afterSplit.substring(0, 100) + "...")
+                // First try direct JSON.parse
+                parsedArray = JSON.parse(src)
+                console.log("Direct parse succeeded")
+            } catch (directParseError) {
+                console.log("Direct parse failed, trying manual unescape method")
+                // Manually handle the escaped string
+                let cleanStr = src
 
-                // Find the actual end of the JSON string
-                // Look for patterns that indicate the end of the JSON array
-                let str = afterSplit
+                // Remove outer quotes if present
+                if (cleanStr.startsWith('"') && cleanStr.endsWith('"')) {
+                    cleanStr = cleanStr.slice(1, -1)
+                }
 
-                // Try to find the end more reliably by looking for }]}] pattern
-                // which should be the end of the user object, then the main array
-                const endPatterns = [
-                    /}]}]\s*$/,  // Ends with }]}]
-                    /}]}]\s*\n/,  // Ends with }]}] followed by newline
-                    /}]}]\s*[,;]/,  // Ends with }]}] followed by comma or semicolon
+                // Handle various trailing patterns more comprehensively
+                const trailingPatterns = [
+                    ']\n"',
+                    ']\n',
+                    '"]\n',
+                    '"]',
+                    '"',
+                    '\n"',
+                    '\n'
                 ]
 
-                let endIndex = -1
-                for (const pattern of endPatterns) {
-                    const match = str.match(pattern)
-                    if (match && match.index !== undefined) {
-                        endIndex = match.index + match[0].indexOf('}]}]') + 4
+                for (const pattern of trailingPatterns) {
+                    if (cleanStr.endsWith(pattern)) {
+                        cleanStr = cleanStr.slice(0, -pattern.length)
                         break
                     }
                 }
 
-                if (endIndex !== -1) {
-                    str = str.substring(0, endIndex)
-                } else {
-                    // If no clear pattern found, try to find the last complete "}]}]
-                    const lastCompleteEnd = str.lastIndexOf('}]}]')
-                    if (lastCompleteEnd !== -1) {
-                        str = str.substring(0, lastCompleteEnd + 4)
-                    } else {
-                        // Final fallback - look for the last }] and add the missing ]
-                        const lastBrace = str.lastIndexOf('}]')
-                        if (lastBrace !== -1) {
-                            str = str.substring(0, lastBrace + 2) + ']'
-                        } else {
-                            // Ultimate fallback to original method
-                            str = str.slice(0, -1)
-                        }
+                // Ensure the string ends properly with ]
+                if (!cleanStr.endsWith(']')) {
+                    // Find the last complete object/array closure
+                    const lastBrace = cleanStr.lastIndexOf('}')
+                    if (lastBrace !== -1) {
+                        cleanStr = cleanStr.substring(0, lastBrace + 1) + ']'
                     }
                 }
 
-                console.log("Raw extracted string:", str)
+                // Unescape the JSON string properly
+                cleanStr = cleanStr
+                    .replace(/\\"/g, '"')           // Unescape quotes
+                    .replace(/\\n/g, '\n')          // Unescape newlines
+                    .replace(/\\r/g, '\r')          // Unescape carriage returns
+                    .replace(/\\t/g, '\t')          // Unescape tabs
+                    .replace(/\\u([0-9a-fA-F]{4})/g, (match, hex) => {
+                        return String.fromCharCode(parseInt(hex, 16))
+                    })                              // Unescape unicode
+                    .replace(/\\\\/g, '\\')         // Unescape backslashes (do this last)
 
-                // The string contains escaped JSON that needs to be properly decoded
-                let parsedArray
+                console.log("Cleaned string:", cleanStr.substring(0, 200) + "..." + cleanStr.substring(cleanStr.length - 50))
+
+                // Additional validation before parsing
+                if (!cleanStr.trim()) {
+                    console.error("Cleaned string is empty")
+                    return null
+                }
+
+                // Check if it looks like valid JSON structure
+                if (!cleanStr.startsWith('[') || !cleanStr.endsWith(']')) {
+                    console.error("Cleaned string doesn't look like a JSON array")
+                    console.error("Starts with:", cleanStr.substring(0, 10))
+                    console.error("Ends with:", cleanStr.substring(cleanStr.length - 10))
+                    return null
+                }
+
                 try {
-                    // First try direct JSON.parse
-                    parsedArray = JSON.parse(str)
-                    console.log("Direct parse succeeded")
-                } catch (directParseError) {
-                    console.log("Direct parse failed, trying manual unescape method")
-                    // Manually handle the escaped string
-                    let cleanStr = str
-
-                    // Remove outer quotes if present
-                    if (cleanStr.startsWith('"') && cleanStr.endsWith('"')) {
-                        cleanStr = cleanStr.slice(1, -1)
-                    }
-
-                    // Handle the trailing characters issue - remove various trailing patterns
-                    if (cleanStr.endsWith(']\n"')) {
-                        cleanStr = cleanStr.slice(0, -3)
-                    } else if (cleanStr.endsWith(']\n')) {
-                        cleanStr = cleanStr.slice(0, -2)
-                    } else if (cleanStr.endsWith('"')) {
-                        cleanStr = cleanStr.slice(0, -1)
-                    }
-
-                    // Also handle case where there might be extra characters after the main JSON
-                    const jsonEndIndex = cleanStr.lastIndexOf('}]')
-                    if (jsonEndIndex !== -1 && jsonEndIndex < cleanStr.length - 2) {
-                        cleanStr = cleanStr.substring(0, jsonEndIndex + 2)
-                    }
-
-                    // Unescape the JSON string properly
-                    cleanStr = cleanStr
-                        .replace(/\\"/g, '"')           // Unescape quotes
-                        .replace(/\\n/g, '\n')          // Unescape newlines
-                        .replace(/\\r/g, '\r')          // Unescape carriage returns
-                        .replace(/\\t/g, '\t')          // Unescape tabs
-                        .replace(/\\u([0-9a-fA-F]{4})/g, (match, hex) => {
-                            return String.fromCharCode(parseInt(hex, 16))
-                        })                              // Unescape unicode
-                        .replace(/\\\\/g, '\\')         // Unescape backslashes (do this last)
-
-                    console.log("Cleaned string:", cleanStr)
-
-                    // Additional validation before parsing
-                    if (!cleanStr.trim()) {
-                        console.error("Cleaned string is empty")
-                        return false
-                    }
-
-                    // Check if it looks like valid JSON structure
-                    if (!cleanStr.startsWith('[') || !cleanStr.endsWith(']')) {
-                        console.error("Cleaned string doesn't look like a JSON array:", cleanStr.substring(0, 100) + "...")
-                        return false
-                    }
+                    parsedArray = JSON.parse(cleanStr)
+                } catch (finalParseError) {
+                    console.error("Final parse error:", finalParseError)
+                    // Try one more fix - remove any trailing commas
+                    const fixedStr = cleanStr
+                        .replace(/,\s*}/g, '}')     // Remove trailing commas in objects
+                        .replace(/,\s*]/g, ']')     // Remove trailing commas in arrays
 
                     try {
-                        parsedArray = JSON.parse(cleanStr)
-                    } catch {
-                        parsedArray = JSON.parse(cleanStr.slice(0, -1) + "}}}]")
+                        parsedArray = JSON.parse(fixedStr)
+                        console.log("Parse succeeded after comma fix")
+                    } catch (ultimateError) {
+                        console.error("Ultimate parse error:", ultimateError)
+                        console.error("Final string sample:", fixedStr.substring(0, 200) + "...")
+                        return null
                     }
                 }
-
-                console.log("Parsed array:", parsedArray)
-
-                // The data structure appears to be: ["$", "$L14", null, actualData]
-                // So we need the element at index 3
-                if (Array.isArray(parsedArray) && parsedArray.length > 3) {
-                    const rawUserData = parsedArray[3]
-                    console.log("Raw user data:", rawUserData)
-
-                    // Transform the data to match our UserData type
-                    foundData = {
-                        uuid: rawUserData.uuid,
-                        self: rawUserData.self,
-                        attendeeTypes: rawUserData.attendeeTypes,
-                        user: {
-                            uuid: rawUserData.user.uuid,
-                            name: rawUserData.user.name,
-                            title: rawUserData.user.title,
-                            bio: rawUserData.user.bio,
-                            avatar: rawUserData.user.avatar
-                        },
-                        // Include additional event data that might be useful
-                        event: rawUserData.event
-                    }
-                    console.log("Processed user data:", foundData)
-                }
-            } catch (parseError) {
-                console.error("Error parsing JSON data:", parseError)
-                // Log the error without referencing str since it might be out of scope
-                console.error("Failed to parse extracted string")
             }
 
-            return false // Break out of the loop
-        })
+            console.log("Parsed array:", parsedArray)
+
+            // The data structure appears to be: ["$", "$L14", null, actualData]
+            // So we need the element at index 3
+            if (Array.isArray(parsedArray) && parsedArray.length > 3) {
+                const rawUserData = parsedArray[3]
+                console.log("Raw user data:", rawUserData)
+
+                // Transform the data to match our UserData type
+                foundData = {
+                    uuid: rawUserData.uuid,
+                    self: rawUserData.self,
+                    attendeeTypes: rawUserData.attendeeTypes,
+                    user: {
+                        uuid: rawUserData.user.uuid,
+                        name: rawUserData.user.name,
+                        title: rawUserData.user.title,
+                        bio: rawUserData.user.bio,
+                        avatar: rawUserData.user.avatar
+                    },
+                    // Include additional event data that might be useful
+                    event: rawUserData.event
+                }
+                console.log("Processed user data:", foundData)
+            } else {
+                console.error("Invalid array structure or missing data at index 3")
+                return null
+            }
+        } catch (parseError) {
+            console.error("Error parsing combined JSON data:", parseError)
+            console.error("Failed to parse src string:", src.substring(0, 200) + "...")
+            return null
+        }
 
         return foundData
     } catch (error) {
