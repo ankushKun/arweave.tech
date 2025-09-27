@@ -3,10 +3,302 @@ import axios from 'axios'
 import * as Cheerio from 'cheerio'
 import * as fs from 'fs'
 import * as path from 'path'
+import WebSocket, { WebSocketServer } from 'ws'
 
 const cookie = process.env.ETH_COOKIE
 const storage_path = "./etgl.json"
 const url_storage_path = "./etgl-urls.json"
+
+type Gender = "M" | "F"
+
+type UserData = {
+    uuid: string,
+    self: boolean,
+    attendeeTypes: string[],
+    user: {
+        uuid: string,
+        name: string,
+        title: string | null,
+        bio: string | null,
+        avatar: {
+            fullUrl: string
+        } | null,
+        gender: Gender
+    },
+    event?: {
+        slug: string,
+        name: string,
+        status: string,
+        squareLogo?: {
+            fullUrl: string
+        },
+        timezone?: {
+            name: string
+        }
+    }
+}
+
+type AllProfiles = {
+    [userid: string]: UserData
+}
+
+// WebSocket types for GPS coordinate sharing
+type GPSCoordinates = {
+    latitude: number
+    longitude: number
+    accuracy?: number
+    timestamp: number
+}
+
+type UserLocation = {
+    userId: string
+    coordinates: GPSCoordinates
+    lastUpdated: number
+}
+
+type WSMessage = {
+    type: 'gps_update' | 'user_selection' | 'selected_users' | 'ping' | 'pong'
+    userId?: string
+    data?: any
+}
+
+type SelectedUsers = {
+    male: string | null
+    female: string | null
+    selectedAt: number
+}
+
+// WebSocket connection management
+const wsClients = new Set<WebSocket>()
+const userLocations = new Map<string, UserLocation>()
+let selectedUsers: SelectedUsers = {
+    male: null,
+    female: null,
+    selectedAt: 0
+}
+
+// WebSocket server instance
+let wss: WebSocketServer | null = null
+
+// WebSocket utility functions
+function broadcastToClients(message: WSMessage) {
+    const messageStr = JSON.stringify(message)
+    wsClients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN) {
+            client.send(messageStr)
+        }
+    })
+}
+
+function removeInactiveClients() {
+    wsClients.forEach(client => {
+        if (client.readyState !== WebSocket.OPEN) {
+            wsClients.delete(client)
+        }
+    })
+}
+
+function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 6371e3 // Earth's radius in meters
+    const φ1 = lat1 * Math.PI / 180
+    const φ2 = lat2 * Math.PI / 180
+    const Δφ = (lat2 - lat1) * Math.PI / 180
+    const Δλ = (lon2 - lon1) * Math.PI / 180
+
+    const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+        Math.cos(φ1) * Math.cos(φ2) *
+        Math.sin(Δλ / 2) * Math.sin(Δλ / 2)
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+
+    return R * c // Distance in meters
+}
+
+function selectRandomUsers() {
+    const profiles = getAllProfiles()
+    const maleUsers: string[] = []
+    const femaleUsers: string[] = []
+
+    // Categorize users by gender
+    Object.entries(profiles).forEach(([userId, profile]) => {
+        if (profile.user?.gender === 'M') {
+            maleUsers.push(userId)
+        } else if (profile.user?.gender === 'F') {
+            femaleUsers.push(userId)
+        }
+    })
+
+    // Select random users
+    const selectedMale = maleUsers.length > 0 ?
+        maleUsers[Math.floor(Math.random() * maleUsers.length)] : null
+    const selectedFemale = femaleUsers.length > 0 ?
+        femaleUsers[Math.floor(Math.random() * femaleUsers.length)] : null
+
+    selectedUsers = {
+        male: selectedMale,
+        female: selectedFemale,
+        selectedAt: Date.now()
+    }
+
+    // Broadcast the selection to all clients
+    broadcastToClients({
+        type: 'selected_users',
+        data: selectedUsers
+    })
+
+    console.log('New users selected:', selectedUsers)
+}
+
+// Initialize WebSocket server
+function initializeWebSocketServer(port: number = 3002) {
+    if (wss) {
+        console.log('WebSocket server already initialized')
+        return wss
+    }
+
+    wss = new WebSocketServer({ port })
+
+    wss.on('connection', (ws: WebSocket) => {
+        console.log('New WebSocket connection established')
+        wsClients.add(ws)
+
+        // Send current selected users to new client
+        ws.send(JSON.stringify({
+            type: 'selected_users',
+            data: selectedUsers
+        }))
+
+        // Send current user locations to new client
+        const locationData = Array.from(userLocations.values())
+        ws.send(JSON.stringify({
+            type: 'gps_update',
+            data: locationData
+        }))
+
+        ws.on('message', (message: string) => {
+            try {
+                const wsMessage: WSMessage = JSON.parse(message)
+                handleWebSocketMessage(ws, wsMessage)
+            } catch (error) {
+                console.error('Error parsing WebSocket message:', error)
+            }
+        })
+
+        ws.on('close', () => {
+            console.log('WebSocket connection closed')
+            wsClients.delete(ws)
+        })
+
+        ws.on('error', (error) => {
+            console.error('WebSocket error:', error)
+            wsClients.delete(ws)
+        })
+
+        // Send ping every 30 seconds to keep connection alive
+        const pingInterval = setInterval(() => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'ping' }))
+            } else {
+                clearInterval(pingInterval)
+            }
+        }, 30000)
+    })
+
+    console.log(`WebSocket server started on port ${port}`)
+
+    // Clean up inactive clients every minute
+    setInterval(removeInactiveClients, 60000)
+
+    // Select new users every hour
+    setInterval(selectRandomUsers, 60 * 60 * 1000)
+
+    // Initial user selection
+    setTimeout(selectRandomUsers, 5000) // Wait 5 seconds for profiles to load
+
+    return wss
+}
+
+function handleWebSocketMessage(ws: WebSocket, message: WSMessage) {
+    switch (message.type) {
+        case 'gps_update':
+            if (message.userId && message.data) {
+                const userLocation: UserLocation = {
+                    userId: message.userId,
+                    coordinates: message.data,
+                    lastUpdated: Date.now()
+                }
+
+                userLocations.set(message.userId, userLocation)
+
+                // Broadcast location update to all other clients
+                broadcastToClients({
+                    type: 'gps_update',
+                    userId: message.userId,
+                    data: userLocation
+                })
+
+                console.log(`GPS update from user ${message.userId}:`, message.data)
+            }
+            break
+
+        case 'user_selection':
+            if (message.userId && message.data?.selectedUserId) {
+                // Verify proximity before confirming selection
+                const selectorLocation = userLocations.get(message.userId)
+                const selectedLocation = userLocations.get(message.data.selectedUserId)
+
+                if (selectorLocation && selectedLocation) {
+                    const distance = calculateDistance(
+                        selectorLocation.coordinates.latitude,
+                        selectorLocation.coordinates.longitude,
+                        selectedLocation.coordinates.latitude,
+                        selectedLocation.coordinates.longitude
+                    )
+
+                    // Allow selection if users are within 100 meters
+                    if (distance <= 100) {
+                        console.log(`User ${message.userId} selected ${message.data.selectedUserId} (distance: ${distance.toFixed(2)}m)`)
+
+                        // Broadcast successful selection
+                        broadcastToClients({
+                            type: 'user_selection',
+                            userId: message.userId,
+                            data: {
+                                selectedUserId: message.data.selectedUserId,
+                                confirmed: true,
+                                distance: distance
+                            }
+                        })
+                    } else {
+                        // Send rejection back to selector
+                        ws.send(JSON.stringify({
+                            type: 'user_selection',
+                            data: {
+                                selectedUserId: message.data.selectedUserId,
+                                confirmed: false,
+                                reason: 'Too far away',
+                                distance: distance
+                            }
+                        }))
+                    }
+                }
+            }
+            break
+
+        case 'pong':
+            // Handle pong response
+            break
+
+        default:
+            console.log('Unknown message type:', message.type)
+    }
+}
+
+function setGender(key: string, gender: Gender) {
+    const profile = getProfile(key)
+    if (!profile) { return }
+    profile.user.gender = gender
+    saveProfile(key, profile)
+}
 
 function saveProfile(key: string, data: any) {
     try {
@@ -24,9 +316,22 @@ function saveProfile(key: string, data: any) {
             }
         }
 
+        // Get existing profile to preserve manually set fields like gender
+        const existingProfile = profiles[key]
+        let updatedData = { ...data }
+
+        // Preserve existing gender data if it exists and new data doesn't have gender or has null gender
+        if (existingProfile?.user?.gender && (!updatedData.user?.gender || updatedData.user.gender === null)) {
+            if (!updatedData.user) {
+                updatedData.user = {}
+            }
+            updatedData.user.gender = existingProfile.user.gender
+            console.log(`Preserving existing gender data (${existingProfile.user.gender}) for key: ${key}`)
+        }
+
         // Add/update the profile data with timestamp
         profiles[key] = {
-            ...data,
+            ...updatedData,
             lastUpdated: new Date().toISOString(),
             cached: true
         }
@@ -75,36 +380,6 @@ function getProfile(key: string): any | null {
 }
 
 const etgl = new Hono()
-
-type UserData = {
-    uuid: string,
-    self: boolean,
-    attendeeTypes: string[],
-    user: {
-        uuid: string,
-        name: string,
-        title: string | null,
-        bio: string | null,
-        avatar: {
-            fullUrl: string
-        } | null
-    },
-    event?: {
-        slug: string,
-        name: string,
-        status: string,
-        squareLogo?: {
-            fullUrl: string
-        },
-        timezone?: {
-            name: string
-        }
-    }
-}
-
-type AllProfiles = {
-    [userid: string]: UserData
-}
 
 async function getAllProfiles(): Promise<AllProfiles> {
     try {
@@ -362,7 +637,8 @@ async function fetchProfileData(url: string, userid: string): Promise<any | null
                         name: rawUserData.user.name,
                         title: rawUserData.user.title,
                         bio: rawUserData.user.bio,
-                        avatar: rawUserData.user.avatar
+                        avatar: rawUserData.user.avatar,
+                        gender: rawUserData.user.gender || null // Include gender from raw data
                     },
                     // Include additional event data that might be useful
                     event: rawUserData.event
@@ -542,4 +818,112 @@ etgl.get('/etgl/profile-all', async (c) => {
     }
 })
 
+etgl.post("/etgl/set-gender/:id", async (c) => {
+    const userid = c.req.param('id')
+    const gender = c.req.query('gender') as Gender
+    const avlGenders: Gender[] = ["M", "F"]
+    if (!gender) { return c.json({ error: 'Gender parameter is required' }, 400) }
+    if (!avlGenders.includes(gender)) { return c.json({ error: 'Invalid gender parameter, should be M/F' }, 400) }
+    const profile = await getProfile(userid)
+    if (!profile) {
+        return c.json({ error: 'Profile not found' }, 404)
+    }
+    setGender(userid, gender)
+    return c.json({ message: 'Gender set successfully' })
+})
+
+// WebSocket management endpoints
+etgl.get('/etgl/ws/status', async (c) => {
+    return c.json({
+        wsServer: wss ? 'running' : 'not initialized',
+        connectedClients: wsClients.size,
+        activeLocations: userLocations.size,
+        selectedUsers: selectedUsers,
+        port: 3002
+    })
+})
+
+etgl.post('/etgl/ws/start', async (c) => {
+    try {
+        if (wss) {
+            return c.json({
+                message: 'WebSocket server already running (auto-initialized)',
+                port: 3002,
+                status: 'running',
+                connectedClients: wsClients.size
+            })
+        }
+
+        initializeWebSocketServer(3002)
+        return c.json({
+            message: 'WebSocket server manually started',
+            port: 3002,
+            status: 'running'
+        })
+    } catch (error) {
+        console.error('Error starting WebSocket server:', error)
+        return c.json({ error: 'Failed to start WebSocket server' }, 500)
+    }
+})
+
+etgl.get('/etgl/ws/locations', async (c) => {
+    const locations = Array.from(userLocations.values())
+    return c.json({
+        count: locations.length,
+        locations: locations
+    })
+})
+
+etgl.get('/etgl/ws/selected', async (c) => {
+    return c.json(selectedUsers)
+})
+
+etgl.post('/etgl/ws/select-new', async (c) => {
+    try {
+        selectRandomUsers()
+        return c.json({
+            message: 'New users selected',
+            selectedUsers: selectedUsers
+        })
+    } catch (error) {
+        console.error('Error selecting new users:', error)
+        return c.json({ error: 'Failed to select new users' }, 500)
+    }
+})
+
+// Proximity verification endpoint
+etgl.post('/etgl/verify-proximity/:userId/:targetUserId', async (c) => {
+    const userId = c.req.param('userId')
+    const targetUserId = c.req.param('targetUserId')
+
+    const userLocation = userLocations.get(userId)
+    const targetLocation = userLocations.get(targetUserId)
+
+    if (!userLocation || !targetLocation) {
+        return c.json({
+            error: 'Location data not found for one or both users',
+            verified: false
+        }, 404)
+    }
+
+    const distance = calculateDistance(
+        userLocation.coordinates.latitude,
+        userLocation.coordinates.longitude,
+        targetLocation.coordinates.latitude,
+        targetLocation.coordinates.longitude
+    )
+
+    const isInProximity = distance <= 100 // 100 meters threshold
+
+    return c.json({
+        verified: isInProximity,
+        distance: Math.round(distance * 100) / 100, // Round to 2 decimal places
+        threshold: 100,
+        userLocation: userLocation.coordinates,
+        targetLocation: targetLocation.coordinates
+    })
+})
+
+
 export default etgl
+export { initializeWebSocketServer }
