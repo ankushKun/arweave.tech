@@ -78,17 +78,17 @@ etgl.get('/etgl/profile', async (c) => {
                 Cookie: cookie
             },
             maxRedirects: 5,
-            timeout: 10000
         })
 
         console.log("Redirecting to", response.request.path)
         const id = response.request.path.split("/")[2] as string
 
         // proxy /etgl/profile/:id
-        return c.redirect(`./${id}`)
+        return c.redirect(`./profile/${id}`)
 
 
     } catch (error) {
+        console.error(error)
         return c.json({ error: 'Failed to fetch profile data' }, 500)
     }
 })
