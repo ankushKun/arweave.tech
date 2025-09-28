@@ -58,7 +58,7 @@ type UserLocation = {
 }
 
 type WSMessage = {
-    type: 'gps_update' | 'user_selection' | 'selected_users' | 'ping' | 'pong'
+    type: 'gps_update' | 'user_selection' | 'selected_users' | 'target_update' | 'ping' | 'pong'
     userId?: string
     data?: any
 }
@@ -114,39 +114,66 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
     return R * c // Distance in meters
 }
 
-function selectRandomUsers() {
-    const profiles = getAllProfiles()
-    const maleUsers: string[] = []
-    const femaleUsers: string[] = []
+async function selectRandomUsers() {
+    try {
+        const profiles = await getAllProfiles()
+        const maleUsers: string[] = []
+        const femaleUsers: string[] = []
 
-    // Categorize users by gender
-    Object.entries(profiles).forEach(([userId, profile]) => {
-        if (profile.user?.gender === 'M') {
-            maleUsers.push(userId)
-        } else if (profile.user?.gender === 'F') {
-            femaleUsers.push(userId)
+        // Categorize users by gender
+        Object.entries(profiles).forEach(([userId, profile]) => {
+            if (profile.user?.gender === 'M') {
+                maleUsers.push(userId)
+            } else if (profile.user?.gender === 'F') {
+                femaleUsers.push(userId)
+            }
+        })
+
+        // Select random users
+        const selectedMale = maleUsers.length > 0 ?
+            maleUsers[Math.floor(Math.random() * maleUsers.length)] : null
+        const selectedFemale = femaleUsers.length > 0 ?
+            femaleUsers[Math.floor(Math.random() * femaleUsers.length)] : null
+
+        selectedUsers = {
+            male: selectedMale,
+            female: selectedFemale,
+            selectedAt: Date.now()
         }
-    })
 
-    // Select random users
-    const selectedMale = maleUsers.length > 0 ?
-        maleUsers[Math.floor(Math.random() * maleUsers.length)] : null
-    const selectedFemale = femaleUsers.length > 0 ?
-        femaleUsers[Math.floor(Math.random() * femaleUsers.length)] : null
+        // Broadcast the selection to all clients
+        broadcastToClients({
+            type: 'selected_users',
+            data: selectedUsers
+        })
 
-    selectedUsers = {
-        male: selectedMale,
-        female: selectedFemale,
-        selectedAt: Date.now()
+        // Also broadcast target location updates if locations are available
+        if (selectedMale && userLocations.has(selectedMale)) {
+            broadcastToClients({
+                type: 'target_update',
+                userId: selectedMale,
+                data: {
+                    gender: 'M',
+                    location: userLocations.get(selectedMale)
+                }
+            })
+        }
+
+        if (selectedFemale && userLocations.has(selectedFemale)) {
+            broadcastToClients({
+                type: 'target_update',
+                userId: selectedFemale,
+                data: {
+                    gender: 'F',
+                    location: userLocations.get(selectedFemale)
+                }
+            })
+        }
+
+        console.log('New users selected:', selectedUsers)
+    } catch (error) {
+        console.error('Error selecting random users:', error)
     }
-
-    // Broadcast the selection to all clients
-    broadcastToClients({
-        type: 'selected_users',
-        data: selectedUsers
-    })
-
-    console.log('New users selected:', selectedUsers)
 }
 
 // Initialize WebSocket server
@@ -209,8 +236,8 @@ function initializeWebSocketServer(port: number = 3002) {
     // Clean up inactive clients every minute
     setInterval(removeInactiveClients, 60000)
 
-    // Select new users every hour
-    setInterval(selectRandomUsers, 60 * 60 * 1000)
+    // Select new users every 5 minutes
+    setInterval(selectRandomUsers, 5 * 60 * 1000)
 
     // Initial user selection
     setTimeout(selectRandomUsers, 5000) // Wait 5 seconds for profiles to load
@@ -236,6 +263,25 @@ function handleWebSocketMessage(ws: WebSocket, message: WSMessage) {
                     userId: message.userId,
                     data: userLocation
                 })
+
+                // If this user is a selected target, also broadcast target update
+                if (message.userId && (message.userId === selectedUsers.male || message.userId === selectedUsers.female)) {
+                    getAllProfiles().then(profiles => {
+                        const userProfile = profiles[message.userId!]
+                        const gender = userProfile?.user?.gender
+
+                        broadcastToClients({
+                            type: 'target_update',
+                            userId: message.userId!,
+                            data: {
+                                gender: gender,
+                                location: userLocation
+                            }
+                        })
+                    }).catch(error => {
+                        console.error('Error getting profiles for target update:', error)
+                    })
+                }
 
                 console.log(`GPS update from user ${message.userId}:`, message.data)
             }
@@ -998,6 +1044,71 @@ etgl.post('/etgl/ws/select-new', async (c) => {
     } catch (error) {
         console.error('Error selecting new users:', error)
         return c.json({ error: 'Failed to select new users' }, 500)
+    }
+})
+
+// Target endpoint - returns coordinates for opposite gender
+etgl.get('/etgl/target/:userId', async (c) => {
+    const userId = c.req.param('userId')
+
+    if (!userId) {
+        return c.json({ error: 'User ID parameter is required' }, 400)
+    }
+
+    try {
+        // Get user's profile to determine their gender
+        const profiles = await getAllProfiles()
+        const userProfile = profiles[userId]
+
+        if (!userProfile || !userProfile.user?.gender) {
+            return c.json({ error: 'User profile or gender not found' }, 404)
+        }
+
+        const userGender = userProfile.user.gender
+        const oppositeGender = userGender === 'M' ? 'F' : 'M'
+
+        // Get the selected target of opposite gender
+        const targetUserId = oppositeGender === 'M' ? selectedUsers.male : selectedUsers.female
+
+        if (!targetUserId) {
+            return c.json({
+                error: `No ${oppositeGender === 'M' ? 'male' : 'female'} target currently selected`,
+                userGender: userGender,
+                oppositeGender: oppositeGender,
+                selectedUsers: selectedUsers
+            }, 404)
+        }
+
+        // Get target's location
+        const targetLocation = userLocations.get(targetUserId)
+
+        if (!targetLocation) {
+            return c.json({
+                error: 'Target location not available',
+                targetUserId: targetUserId,
+                message: 'Target user has not shared their location yet'
+            }, 404)
+        }
+
+        // Get target's profile for additional info
+        const targetProfile = profiles[targetUserId]
+
+        return c.json({
+            userGender: userGender,
+            targetGender: oppositeGender,
+            targetUserId: targetUserId,
+            targetProfile: targetProfile ? {
+                name: targetProfile.user?.name,
+                avatar: targetProfile.user?.avatar,
+                bio: targetProfile.user?.bio
+            } : null,
+            coordinates: targetLocation.coordinates,
+            lastUpdated: targetLocation.lastUpdated,
+            selectedAt: selectedUsers.selectedAt
+        })
+    } catch (error) {
+        console.error('Error in target endpoint:', error)
+        return c.json({ error: 'Failed to get target information' }, 500)
     }
 })
 

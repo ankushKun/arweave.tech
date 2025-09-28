@@ -6,7 +6,7 @@ This implementation provides real-time GPS coordinate sharing functionality for 
 
 - **Real-time GPS tracking**: Users can share their live GPS coordinates
 - **Proximity verification**: Confirms users are within 100 meters before allowing selections
-- **Automatic user selection**: Randomly selects one male and one female user every hour
+- **Automatic user selection**: Randomly selects one male and one female user every 5 minutes
 - **Connection management**: Handles WebSocket connections with ping/pong heartbeat
 
 ## API Endpoints
@@ -19,6 +19,7 @@ This implementation provides real-time GPS coordinate sharing functionality for 
 - `GET /etgl/ws/selected` - Get currently selected users
 - `POST /etgl/ws/select-new` - Manually trigger new user selection
 - `POST /etgl/verify-proximity/:userId/:targetUserId` - Verify if two users are in proximity
+- `GET /etgl/target/:userId` - Get target coordinates for opposite gender
 
 ## WebSocket Connection
 
@@ -81,7 +82,28 @@ Connect to: `ws://localhost:3002`
 }
 ```
 
-#### 5. Ping/Pong (Heartbeat)
+#### 5. Target Update (Server → Client)
+```json
+{
+  "type": "target_update",
+  "userId": "target123",
+  "data": {
+    "gender": "F",
+    "location": {
+      "userId": "target123",
+      "coordinates": {
+        "latitude": 40.7128,
+        "longitude": -74.0060,
+        "accuracy": 10,
+        "timestamp": 1640995200000
+      },
+      "lastUpdated": 1640995200000
+    }
+  }
+}
+```
+
+#### 6. Ping/Pong (Heartbeat)
 ```json
 {
   "type": "ping"
@@ -101,9 +123,45 @@ Connect to: `ws://localhost:3002`
 4. **Send GPS updates**: Clients send their coordinates periodically
 5. **Receive broadcasts**: All clients receive location updates and selected user notifications
 6. **User selection**: Users can select others if they're within 100 meters
-7. **Automatic selection**: System selects new users every hour
+7. **Automatic selection**: System selects new users every 5 minutes
 
 > **Note**: The WebSocket server now starts automatically when you run the API server. The `POST /etgl/ws/start` endpoint is still available for manual control if needed.
+
+## Target System
+
+The system automatically selects one male and one female user as "targets" every 5 minutes. Users can then:
+
+- **Get target coordinates**: Use `GET /etgl/target/:userId` to get the coordinates of the opposite gender target
+- **Real-time updates**: Receive live location updates for targets via WebSocket `target_update` messages
+- **Gender-based matching**: Males get female targets, females get male targets
+
+### Target Endpoint Usage
+
+```bash
+GET /etgl/target/user123
+```
+
+**Response:**
+```json
+{
+  "userGender": "M",
+  "targetGender": "F",
+  "targetUserId": "target456",
+  "targetProfile": {
+    "name": "Jane Doe",
+    "avatar": { "fullUrl": "..." },
+    "bio": "Software developer"
+  },
+  "coordinates": {
+    "latitude": 40.7128,
+    "longitude": -74.0060,
+    "accuracy": 10,
+    "timestamp": 1640995200000
+  },
+  "lastUpdated": 1640995200000,
+  "selectedAt": 1640995200000
+}
+```
 
 ## Proximity Rules
 
@@ -135,6 +193,9 @@ ws.onmessage = (event) => {
       break;
     case 'gps_update':
       console.log('Location update:', message.data);
+      break;
+    case 'target_update':
+      console.log('Target location update:', message.data);
       break;
     case 'ping':
       ws.send(JSON.stringify({ type: 'pong' }));
