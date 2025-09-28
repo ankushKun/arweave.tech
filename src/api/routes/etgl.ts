@@ -23,7 +23,8 @@ type UserData = {
         avatar: {
             fullUrl: string
         } | null,
-        gender: Gender
+        gender: Gender,
+        worldid?: string
     },
     event?: {
         slug: string,
@@ -293,7 +294,7 @@ function handleWebSocketMessage(ws: WebSocket, message: WSMessage) {
     }
 }
 
-function setGender(key: string, gender: Gender): boolean {
+function setGender(key: string, gender: Gender, worldid?: string): boolean {
     console.log(`Attempting to set gender for key: ${key}`)
     const profile = getProfile(key)
     if (!profile) {
@@ -310,9 +311,15 @@ function setGender(key: string, gender: Gender): boolean {
     console.log(`Setting gender from ${profile.user.gender} to ${gender} for key: ${key}`)
     profile.user.gender = gender
 
+    // Set worldid if provided
+    if (worldid) {
+        console.log(`Setting worldid to ${worldid} for key: ${key}`)
+        profile.user.worldid = worldid
+    }
+
     try {
         saveProfile(key, profile)
-        console.log(`Successfully set gender to ${gender} for key: ${key}`)
+        console.log(`Successfully set gender to ${gender}${worldid ? ` and worldid to ${worldid}` : ''} for key: ${key}`)
         return true
     } catch (error) {
         console.error(`Failed to save profile after setting gender for key: ${key}`, error)
@@ -840,21 +847,87 @@ etgl.get('/etgl/profile-all', async (c) => {
 
 etgl.post("/etgl/set-gender/:id", async (c) => {
     const userid = c.req.param('id')
-    const gender = c.req.query('gender') as Gender
-    console.log("Setting gender for", userid, "to", gender)
+
+    // Get data from request body
+    let requestData
+    try {
+        requestData = await c.req.json()
+    } catch (error) {
+        return c.json({ error: 'Invalid JSON in request body' }, 400)
+    }
+
+    const gender = requestData.gender as Gender
+    const worldid = requestData.worldid as string
+
+    console.log("Setting gender for", userid, "to", gender, "with worldid:", worldid)
+
     const avlGenders: Gender[] = ["M", "F"]
-    if (!gender) { return c.json({ error: 'Gender parameter is required' }, 400) }
+    if (!gender) { return c.json({ error: 'Gender parameter is required in request body' }, 400) }
     if (!avlGenders.includes(gender)) { return c.json({ error: 'Invalid gender parameter, should be M/F' }, 400) }
-    const profile = getProfile(userid) // Remove await since getProfile is not async
+
+    const profile = getProfile(userid)
     console.log("Profile found:", profile ? "Yes" : "No")
     if (!profile) {
         return c.json({ error: 'Profile not found' }, 404)
     }
-    const result = setGender(userid, gender)
+
+    const result = setGender(userid, gender, worldid)
     if (!result) {
         return c.json({ error: 'Failed to set gender' }, 500)
     }
-    return c.json({ message: 'Gender set successfully' })
+
+    return c.json({
+        message: 'Gender set successfully',
+        gender: gender,
+        worldid: worldid || null
+    })
+})
+
+etgl.get("/etgl/id-by-worldid/:worldid", async (c) => {
+    const worldid = c.req.param('worldid')
+
+    if (!worldid) {
+        return c.json({ error: 'Worldid parameter is required' }, 400)
+    }
+
+    console.log("Looking up user ID for worldid:", worldid)
+
+    try {
+        // Search through all profiles to find matching worldid
+        const profiles = await getAllProfiles()
+
+        for (const [userid, profile] of Object.entries(profiles)) {
+            if (profile.user?.worldid === worldid) {
+                console.log(`Found user ID ${userid} for worldid ${worldid}`)
+                return c.json({
+                    userid: userid,
+                    worldid: worldid,
+                    profile: profile
+                })
+            }
+        }
+
+        // Also search URL-based profiles
+        const urlProfiles = await getAllProfilesByUrl()
+
+        for (const [url, profile] of Object.entries(urlProfiles)) {
+            if (profile.user?.worldid === worldid) {
+                console.log(`Found user in URL storage for worldid ${worldid}`)
+                return c.json({
+                    url: url,
+                    worldid: worldid,
+                    profile: profile
+                })
+            }
+        }
+
+        console.log(`No user found for worldid: ${worldid}`)
+        return c.json({ error: 'User not found for the given worldid' }, 404)
+
+    } catch (error) {
+        console.error('Error looking up user by worldid:', error)
+        return c.json({ error: 'Failed to lookup user by worldid' }, 500)
+    }
 })
 
 // WebSocket management endpoints
