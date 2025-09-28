@@ -1155,21 +1155,46 @@ etgl.post('/etgl/ws/select-new', async (c) => {
     }
 })
 
-// Target endpoint - returns coordinates for opposite gender
-etgl.get('/etgl/target/:userId', async (c) => {
-    const userId = c.req.param('userId')
+// Target endpoint - returns coordinates for opposite gender (using worldid)
+etgl.get('/etgl/target/:worldid', async (c) => {
+    const worldid = c.req.param('worldid')
 
-    if (!userId) {
-        return c.json({ error: 'User ID parameter is required' }, 400)
+    if (!worldid) {
+        return c.json({ error: 'World ID parameter is required' }, 400)
     }
 
     try {
-        // Get user's profile to determine their gender
+        // Find user by worldid
         const profiles = await getAllProfiles()
-        const userProfile = profiles[userId]
+        let userProfile = null
+        let userId = null
+
+        // Search through all profiles to find matching worldid
+        for (const [id, profile] of Object.entries(profiles)) {
+            if (profile.user?.worldid === worldid) {
+                userProfile = profile
+                userId = id
+                break
+            }
+        }
+
+        // Also search URL-based profiles if not found
+        if (!userProfile) {
+            const urlProfiles = await getAllProfilesByUrl()
+            for (const [url, profile] of Object.entries(urlProfiles)) {
+                if (profile.user?.worldid === worldid) {
+                    userProfile = profile
+                    userId = url // Use URL as identifier for URL-based profiles
+                    break
+                }
+            }
+        }
 
         if (!userProfile || !userProfile.user?.gender) {
-            return c.json({ error: 'User profile or gender not found' }, 404)
+            return c.json({
+                error: 'User profile or gender not found for the given worldid',
+                worldid: worldid
+            }, 404)
         }
 
         const userGender = userProfile.user.gender
@@ -1181,6 +1206,7 @@ etgl.get('/etgl/target/:userId', async (c) => {
         if (!targetUserId) {
             return c.json({
                 error: `No ${oppositeGender === 'M' ? 'male' : 'female'} target currently selected`,
+                worldid: worldid,
                 userGender: userGender,
                 oppositeGender: oppositeGender,
                 selectedUsers: selectedUsers
@@ -1193,6 +1219,7 @@ etgl.get('/etgl/target/:userId', async (c) => {
         if (!targetLocation) {
             return c.json({
                 error: 'Target location not available',
+                worldid: worldid,
                 targetUserId: targetUserId,
                 message: 'Target user has not shared their location yet'
             }, 404)
@@ -1202,6 +1229,8 @@ etgl.get('/etgl/target/:userId', async (c) => {
         const targetProfile = profiles[targetUserId]
 
         return c.json({
+            worldid: worldid,
+            userId: userId,
             userGender: userGender,
             targetGender: oppositeGender,
             targetUserId: targetUserId,

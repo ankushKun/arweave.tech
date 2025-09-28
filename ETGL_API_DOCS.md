@@ -351,12 +351,12 @@ POST /etgl/verify-proximity/user-1/user-2
 }
 ```
 
-### GET /etgl/target/:userId
+### GET /etgl/target/:worldid
 
-Returns the coordinates and information for the opposite gender target assigned to the user.
+Returns the coordinates and information for the opposite gender target assigned to the user (identified by worldid).
 
 **Parameters:**
-- `userId` (path): ID of the requesting user
+- `worldid` (path): World ID of the requesting user
 
 **Response:**
 - `200`: Target information and coordinates
@@ -364,12 +364,14 @@ Returns the coordinates and information for the opposite gender target assigned 
 
 **Example:**
 ```bash
-GET /etgl/target/user-123
+GET /etgl/target/0x1234567890abcdef
 ```
 
 **Response:**
 ```json
 {
+    "worldid": "0x1234567890abcdef",
+    "userId": "user-123",
     "userGender": "M",
     "targetGender": "F",
     "targetUserId": "target-456",
