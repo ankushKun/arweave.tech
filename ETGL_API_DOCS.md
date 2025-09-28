@@ -393,12 +393,12 @@ GET /etgl/target/0x1234567890abcdef
 
 ### POST /etgl/scan-nfc
 
-Processes NFC scan and increments points if the scanned user is the correct target.
+Processes NFC scan and increments points if the scanned user is the correct target (using worldid).
 
 **Request Body:**
 ```json
 {
-    "userId": "user-123",
+    "worldid": "0x1234567890abcdef",
     "scannedUrl": "https://ethglobal.com/connect/target-456"
 }
 ```
@@ -413,6 +413,7 @@ Processes NFC scan and increments points if the scanned user is the correct targ
 {
     "success": true,
     "message": "Points incremented successfully!",
+    "worldid": "0x1234567890abcdef",
     "userId": "user-123",
     "scannedTargetId": "target-456",
     "targetName": "Jane Doe",
@@ -427,6 +428,7 @@ Processes NFC scan and increments points if the scanned user is the correct targ
 {
     "success": false,
     "error": "Scanned user is not your current target",
+    "worldid": "0x1234567890abcdef",
     "scannedTargetId": "wrong-target",
     "expectedTargetId": "correct-target",
     "message": "You can only earn points by scanning your assigned target"

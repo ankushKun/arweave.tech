@@ -1282,20 +1282,53 @@ etgl.post('/etgl/verify-proximity/:userId/:targetUserId', async (c) => {
     })
 })
 
-// NFC Scan endpoint - increments points for scanning correct target
+// NFC Scan endpoint - increments points for scanning correct target (using worldid)
 etgl.post('/etgl/scan-nfc', async (c) => {
     try {
         const requestData = await c.req.json()
-        const { userId, scannedUrl } = requestData
+        const { worldid, scannedUrl } = requestData
 
-        if (!userId || !scannedUrl) {
+        if (!worldid || !scannedUrl) {
             return c.json({
-                error: 'Both userId and scannedUrl are required',
-                received: { userId, scannedUrl }
+                error: 'Both worldid and scannedUrl are required',
+                received: { worldid, scannedUrl }
             }, 400)
         }
 
-        console.log(`NFC scan attempt: User ${userId} scanned ${scannedUrl}`)
+        console.log(`NFC scan attempt: User with worldid ${worldid} scanned ${scannedUrl}`)
+
+        // Find user by worldid
+        const profiles = await getAllProfiles()
+        let userProfile = null
+        let userId = null
+
+        // Search through all profiles to find matching worldid
+        for (const [id, profile] of Object.entries(profiles)) {
+            if (profile.user?.worldid === worldid) {
+                userProfile = profile
+                userId = id
+                break
+            }
+        }
+
+        // Also search URL-based profiles if not found
+        if (!userProfile) {
+            const urlProfiles = await getAllProfilesByUrl()
+            for (const [url, profile] of Object.entries(urlProfiles)) {
+                if (profile.user?.worldid === worldid) {
+                    userProfile = profile
+                    userId = url // Use URL as identifier for URL-based profiles
+                    break
+                }
+            }
+        }
+
+        if (!userProfile || !userProfile.user?.gender) {
+            return c.json({
+                error: 'User profile or gender not found for the given worldid',
+                worldid: worldid
+            }, 404)
+        }
 
         // Extract the target user ID from the scanned URL
         const scannedTargetId = await extractUserIdFromUrl(scannedUrl)
@@ -1308,17 +1341,6 @@ etgl.post('/etgl/scan-nfc', async (c) => {
 
         console.log(`Extracted target ID: ${scannedTargetId}`)
 
-        // Get user's profile to determine their gender
-        const profiles = await getAllProfiles()
-        const userProfile = profiles[userId]
-
-        if (!userProfile || !userProfile.user?.gender) {
-            return c.json({
-                error: 'User profile or gender not found',
-                userId: userId
-            }, 404)
-        }
-
         const userGender = userProfile.user.gender
         const oppositeGender = userGender === 'M' ? 'F' : 'M'
 
@@ -1328,6 +1350,7 @@ etgl.post('/etgl/scan-nfc', async (c) => {
         if (!expectedTargetId) {
             return c.json({
                 error: `No ${oppositeGender === 'M' ? 'male' : 'female'} target currently selected`,
+                worldid: worldid,
                 userGender: userGender,
                 oppositeGender: oppositeGender
             }, 404)
@@ -1338,26 +1361,28 @@ etgl.post('/etgl/scan-nfc', async (c) => {
             return c.json({
                 success: false,
                 error: 'Scanned user is not your current target',
+                worldid: worldid,
                 scannedTargetId: scannedTargetId,
                 expectedTargetId: expectedTargetId,
                 message: 'You can only earn points by scanning your assigned target'
             }, 400)
         }
 
-        // Attempt to increment points
-        const pointsIncremented = incrementUserPoints(userId, scannedTargetId)
+        // Attempt to increment points (still using userId internally for points storage)
+        const pointsIncremented = incrementUserPoints(userId!, scannedTargetId)
 
         if (!pointsIncremented) {
             return c.json({
                 success: false,
                 error: 'Points not incremented',
                 reason: 'You have already scanned this target',
+                worldid: worldid,
                 scannedTargetId: scannedTargetId
             }, 400)
         }
 
         // Get updated user points
-        const updatedPoints = getUserPoints(userId)
+        const updatedPoints = getUserPoints(userId!)
 
         // Get target profile info
         const targetProfile = profiles[scannedTargetId]
@@ -1365,6 +1390,7 @@ etgl.post('/etgl/scan-nfc', async (c) => {
         return c.json({
             success: true,
             message: 'Points incremented successfully!',
+            worldid: worldid,
             userId: userId,
             scannedTargetId: scannedTargetId,
             targetName: targetProfile?.user?.name || 'Unknown',
