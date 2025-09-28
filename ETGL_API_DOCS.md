@@ -351,6 +351,154 @@ POST /etgl/verify-proximity/user-1/user-2
 }
 ```
 
+### GET /etgl/target/:userId
+
+Returns the coordinates and information for the opposite gender target assigned to the user.
+
+**Parameters:**
+- `userId` (path): ID of the requesting user
+
+**Response:**
+- `200`: Target information and coordinates
+- `404`: User profile not found, no target selected, or target location unavailable
+
+**Example:**
+```bash
+GET /etgl/target/user-123
+```
+
+**Response:**
+```json
+{
+    "userGender": "M",
+    "targetGender": "F",
+    "targetUserId": "target-456",
+    "targetProfile": {
+        "name": "Jane Doe",
+        "avatar": { "fullUrl": "..." },
+        "bio": "Software developer"
+    },
+    "coordinates": {
+        "latitude": 40.7128,
+        "longitude": -74.0060,
+        "accuracy": 10,
+        "timestamp": 1695808800000
+    },
+    "lastUpdated": 1695808800000,
+    "selectedAt": 1695808800000
+}
+```
+
+### POST /etgl/scan-nfc
+
+Processes NFC scan and increments points if the scanned user is the correct target.
+
+**Request Body:**
+```json
+{
+    "userId": "user-123",
+    "scannedUrl": "https://ethglobal.com/connect/target-456"
+}
+```
+
+**Response:**
+- `200`: Points incremented successfully
+- `400`: Invalid request, wrong target, or already scanned
+- `404`: User profile not found or no target selected
+
+**Success Response:**
+```json
+{
+    "success": true,
+    "message": "Points incremented successfully!",
+    "userId": "user-123",
+    "scannedTargetId": "target-456",
+    "targetName": "Jane Doe",
+    "pointsEarned": 1,
+    "totalPoints": 5,
+    "scannedTargets": 3
+}
+```
+
+**Error Response:**
+```json
+{
+    "success": false,
+    "error": "Scanned user is not your current target",
+    "scannedTargetId": "wrong-target",
+    "expectedTargetId": "correct-target",
+    "message": "You can only earn points by scanning your assigned target"
+}
+```
+
+### GET /etgl/points/:userId
+
+Retrieves the current points and scanning history for a user.
+
+**Parameters:**
+- `userId` (path): ID of the user
+
+**Response:**
+- `200`: User points information
+- `400`: Missing user ID
+- `500`: Server error
+
+**Example:**
+```bash
+GET /etgl/points/user-123
+```
+
+**Response:**
+```json
+{
+    "userId": "user-123",
+    "userName": "John Doe",
+    "points": 5,
+    "scannedTargetsCount": 3,
+    "scannedTargets": ["target-1", "target-2", "target-3"],
+    "lastUpdated": 1695808800000
+}
+```
+
+### GET /etgl/leaderboard
+
+Returns the leaderboard showing all users ranked by points.
+
+**Response:**
+- `200`: Leaderboard data
+- `500`: Server error
+
+**Example:**
+```bash
+GET /etgl/leaderboard
+```
+
+**Response:**
+```json
+{
+    "leaderboard": [
+        {
+            "userId": "user-123",
+            "userName": "John Doe",
+            "avatar": "https://...",
+            "points": 10,
+            "scannedTargetsCount": 5,
+            "lastUpdated": 1695808800000
+        },
+        {
+            "userId": "user-456",
+            "userName": "Jane Smith",
+            "avatar": "https://...",
+            "points": 8,
+            "scannedTargetsCount": 4,
+            "lastUpdated": 1695808700000
+        }
+    ],
+    "totalUsers": 2,
+    "generatedAt": 1695808900000
+}
+```
+
 ## WebSocket API
 
 The API includes a WebSocket server running on port 3002 for real-time features.
@@ -424,10 +572,17 @@ The API includes a WebSocket server running on port 3002 for real-time features.
 - Proximity verification (100-meter threshold)
 
 ### User Matching System
-- Automatic random user selection every hour
+- Automatic random user selection every 5 minutes
 - Gender-based categorization
 - Real-time broadcast of selected users
 - Manual selection triggering
+
+### Points and NFC System
+- NFC scanning validation against selected targets
+- Points increment system with duplicate prevention
+- User points tracking and history
+- Leaderboard functionality
+- Gender-based target assignment
 
 ### Error Handling
 - Comprehensive error responses
@@ -443,6 +598,7 @@ The API includes a WebSocket server running on port 3002 for real-time features.
 
 - `./etgl.json`: Profiles stored by user ID
 - `./etgl-urls.json`: Profiles stored by URL
+- `./etgl-points.json`: User points and scanning history
 
 ## WebSocket Server
 

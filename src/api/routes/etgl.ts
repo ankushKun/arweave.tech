@@ -8,6 +8,7 @@ import WebSocket, { WebSocketServer } from 'ws'
 const cookie = process.env.ETH_COOKIE
 const storage_path = "./etgl.json"
 const url_storage_path = "./etgl-urls.json"
+const points_storage_path = "./etgl-points.json"
 
 type Gender = "M" | "F"
 
@@ -69,6 +70,17 @@ type SelectedUsers = {
     selectedAt: number
 }
 
+type UserPoints = {
+    userId: string
+    points: number
+    lastUpdated: number
+    scannedTargets: string[]  // Track which targets they've successfully scanned
+}
+
+type PointsStorage = {
+    [userId: string]: UserPoints
+}
+
 // WebSocket connection management
 const wsClients = new Set<WebSocket>()
 const userLocations = new Map<string, UserLocation>()
@@ -112,6 +124,102 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 
     return R * c // Distance in meters
+}
+
+// Points management functions
+function loadPoints(): PointsStorage {
+    try {
+        if (!fs.existsSync(points_storage_path)) {
+            return {}
+        }
+
+        const fileContent = fs.readFileSync(points_storage_path, 'utf8')
+        if (!fileContent.trim()) {
+            return {}
+        }
+
+        return JSON.parse(fileContent)
+    } catch (error) {
+        console.error('Error loading points:', error)
+        return {}
+    }
+}
+
+function savePoints(points: PointsStorage): void {
+    try {
+        fs.writeFileSync(points_storage_path, JSON.stringify(points, null, 2))
+    } catch (error) {
+        console.error('Error saving points:', error)
+    }
+}
+
+function getUserPoints(userId: string): UserPoints {
+    const points = loadPoints()
+    return points[userId] || {
+        userId: userId,
+        points: 0,
+        lastUpdated: Date.now(),
+        scannedTargets: []
+    }
+}
+
+function incrementUserPoints(userId: string, targetId: string): boolean {
+    try {
+        const points = loadPoints()
+        const userPoints = points[userId] || {
+            userId: userId,
+            points: 0,
+            lastUpdated: Date.now(),
+            scannedTargets: []
+        }
+
+        // Check if user has already scanned this target
+        if (userPoints.scannedTargets.includes(targetId)) {
+            console.log(`User ${userId} has already scanned target ${targetId}`)
+            return false
+        }
+
+        // Increment points and add target to scanned list
+        userPoints.points += 1
+        userPoints.scannedTargets.push(targetId)
+        userPoints.lastUpdated = Date.now()
+
+        points[userId] = userPoints
+        savePoints(points)
+
+        console.log(`Points incremented for user ${userId}: ${userPoints.points} points`)
+        return true
+    } catch (error) {
+        console.error('Error incrementing points:', error)
+        return false
+    }
+}
+
+async function extractUserIdFromUrl(url: string): Promise<string | null> {
+    try {
+        // First try to extract from URL pattern (e.g., https://ethglobal.com/connect/userid)
+        const urlMatch = url.match(/\/connect\/([^\/\?]+)/)
+        if (urlMatch) {
+            return urlMatch[1]
+        }
+
+        // If direct extraction fails, try to fetch and follow redirects
+        const response = await axios.get(url, {
+            headers: { Cookie: cookie },
+            maxRedirects: 5,
+        })
+
+        const redirectedPath = response.request.path
+        const pathMatch = redirectedPath.match(/\/connect\/([^\/\?]+)/)
+        if (pathMatch) {
+            return pathMatch[1]
+        }
+
+        return null
+    } catch (error) {
+        console.error('Error extracting user ID from URL:', error)
+        return null
+    }
 }
 
 async function selectRandomUsers() {
@@ -1145,6 +1253,164 @@ etgl.post('/etgl/verify-proximity/:userId/:targetUserId', async (c) => {
     })
 })
 
+// NFC Scan endpoint - increments points for scanning correct target
+etgl.post('/etgl/scan-nfc', async (c) => {
+    try {
+        const requestData = await c.req.json()
+        const { userId, scannedUrl } = requestData
+
+        if (!userId || !scannedUrl) {
+            return c.json({
+                error: 'Both userId and scannedUrl are required',
+                received: { userId, scannedUrl }
+            }, 400)
+        }
+
+        console.log(`NFC scan attempt: User ${userId} scanned ${scannedUrl}`)
+
+        // Extract the target user ID from the scanned URL
+        const scannedTargetId = await extractUserIdFromUrl(scannedUrl)
+        if (!scannedTargetId) {
+            return c.json({
+                error: 'Could not extract user ID from scanned URL',
+                scannedUrl: scannedUrl
+            }, 400)
+        }
+
+        console.log(`Extracted target ID: ${scannedTargetId}`)
+
+        // Get user's profile to determine their gender
+        const profiles = await getAllProfiles()
+        const userProfile = profiles[userId]
+
+        if (!userProfile || !userProfile.user?.gender) {
+            return c.json({
+                error: 'User profile or gender not found',
+                userId: userId
+            }, 404)
+        }
+
+        const userGender = userProfile.user.gender
+        const oppositeGender = userGender === 'M' ? 'F' : 'M'
+
+        // Get the current selected target of opposite gender
+        const expectedTargetId = oppositeGender === 'M' ? selectedUsers.male : selectedUsers.female
+
+        if (!expectedTargetId) {
+            return c.json({
+                error: `No ${oppositeGender === 'M' ? 'male' : 'female'} target currently selected`,
+                userGender: userGender,
+                oppositeGender: oppositeGender
+            }, 404)
+        }
+
+        // Check if the scanned target matches the expected target
+        if (scannedTargetId !== expectedTargetId) {
+            return c.json({
+                success: false,
+                error: 'Scanned user is not your current target',
+                scannedTargetId: scannedTargetId,
+                expectedTargetId: expectedTargetId,
+                message: 'You can only earn points by scanning your assigned target'
+            }, 400)
+        }
+
+        // Attempt to increment points
+        const pointsIncremented = incrementUserPoints(userId, scannedTargetId)
+
+        if (!pointsIncremented) {
+            return c.json({
+                success: false,
+                error: 'Points not incremented',
+                reason: 'You have already scanned this target',
+                scannedTargetId: scannedTargetId
+            }, 400)
+        }
+
+        // Get updated user points
+        const updatedPoints = getUserPoints(userId)
+
+        // Get target profile info
+        const targetProfile = profiles[scannedTargetId]
+
+        return c.json({
+            success: true,
+            message: 'Points incremented successfully!',
+            userId: userId,
+            scannedTargetId: scannedTargetId,
+            targetName: targetProfile?.user?.name || 'Unknown',
+            pointsEarned: 1,
+            totalPoints: updatedPoints.points,
+            scannedTargets: updatedPoints.scannedTargets.length
+        })
+
+    } catch (error) {
+        console.error('Error in NFC scan endpoint:', error)
+        return c.json({
+            error: 'Failed to process NFC scan',
+            details: error instanceof Error ? error.message : 'Unknown error'
+        }, 500)
+    }
+})
+
+// Get user points endpoint
+etgl.get('/etgl/points/:userId', async (c) => {
+    const userId = c.req.param('userId')
+
+    if (!userId) {
+        return c.json({ error: 'User ID parameter is required' }, 400)
+    }
+
+    try {
+        const userPoints = getUserPoints(userId)
+        const profiles = await getAllProfiles()
+        const userProfile = profiles[userId]
+
+        return c.json({
+            userId: userId,
+            userName: userProfile?.user?.name || 'Unknown',
+            points: userPoints.points,
+            scannedTargetsCount: userPoints.scannedTargets.length,
+            scannedTargets: userPoints.scannedTargets,
+            lastUpdated: userPoints.lastUpdated
+        })
+    } catch (error) {
+        console.error('Error getting user points:', error)
+        return c.json({ error: 'Failed to get user points' }, 500)
+    }
+})
+
+// Get leaderboard endpoint
+etgl.get('/etgl/leaderboard', async (c) => {
+    try {
+        const points = loadPoints()
+        const profiles = await getAllProfiles()
+
+        // Convert points to array and sort by points descending
+        const leaderboard = Object.values(points)
+            .sort((a, b) => b.points - a.points)
+            .map(userPoints => {
+                const profile = profiles[userPoints.userId]
+                return {
+                    userId: userPoints.userId,
+                    userName: profile?.user?.name || 'Unknown',
+                    avatar: profile?.user?.avatar?.fullUrl || null,
+                    points: userPoints.points,
+                    scannedTargetsCount: userPoints.scannedTargets.length,
+                    lastUpdated: userPoints.lastUpdated
+                }
+            })
+
+        return c.json({
+            leaderboard: leaderboard,
+            totalUsers: leaderboard.length,
+            generatedAt: Date.now()
+        })
+    } catch (error) {
+        console.error('Error getting leaderboard:', error)
+        return c.json({ error: 'Failed to get leaderboard' }, 500)
+    }
+})
 
 export default etgl
 export { initializeWebSocketServer }
