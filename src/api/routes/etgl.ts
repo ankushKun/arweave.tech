@@ -1,9 +1,358 @@
-import { Hono } from 'hono'
+import { Hono, Context } from 'hono'
 import axios from 'axios'
 import * as Cheerio from 'cheerio'
 import * as fs from 'fs'
 import * as path from 'path'
 import WebSocket, { WebSocketServer } from 'ws'
+
+// Comprehensive Logging Utility for WebSocket and API
+enum LogLevel {
+    DEBUG = 0,
+    INFO = 1,
+    WARN = 2,
+    ERROR = 3
+}
+
+interface LogEntry {
+    timestamp: string
+    level: LogLevel
+    category: string
+    message: string
+    data?: any
+    clientId?: string
+    userId?: string
+    requestId?: string
+    method?: string
+    path?: string
+    statusCode?: number
+    duration?: number
+    userAgent?: string
+    ip?: string
+}
+
+class AppLogger {
+    private static instance: AppLogger
+    private logLevel: LogLevel = LogLevel.INFO
+    private logs: LogEntry[] = []
+    private maxLogs: number = 2000
+
+    static getInstance(): AppLogger {
+        if (!AppLogger.instance) {
+            AppLogger.instance = new AppLogger()
+        }
+        return AppLogger.instance
+    }
+
+    setLogLevel(level: LogLevel) {
+        this.logLevel = level
+    }
+
+    generateRequestId(): string {
+        return `req_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`
+    }
+
+    private log(
+        level: LogLevel,
+        category: string,
+        message: string,
+        data?: any,
+        clientId?: string,
+        userId?: string,
+        requestId?: string,
+        method?: string,
+        path?: string,
+        statusCode?: number,
+        duration?: number,
+        userAgent?: string,
+        ip?: string
+    ) {
+        if (level < this.logLevel) return
+
+        const entry: LogEntry = {
+            timestamp: new Date().toISOString(),
+            level,
+            category,
+            message,
+            data,
+            clientId,
+            userId,
+            requestId,
+            method,
+            path,
+            statusCode,
+            duration,
+            userAgent,
+            ip
+        }
+
+        // Add to in-memory logs
+        this.logs.push(entry)
+        if (this.logs.length > this.maxLogs) {
+            this.logs.shift() // Remove oldest log
+        }
+
+        // Console output with colors and enhanced formatting
+        const levelStr = LogLevel[level]
+        const timestamp = entry.timestamp
+
+        // Determine prefix based on category
+        const prefixType = category.startsWith('API') ? 'API' : 'WS'
+        const prefix = `[${timestamp}] [${prefixType}-${levelStr}] [${category}]`
+
+        const colorCode = {
+            [LogLevel.DEBUG]: '\x1b[36m', // Cyan
+            [LogLevel.INFO]: '\x1b[32m',  // Green
+            [LogLevel.WARN]: '\x1b[33m',  // Yellow
+            [LogLevel.ERROR]: '\x1b[31m'  // Red
+        }[level]
+
+        const resetCode = '\x1b[0m'
+
+        // Enhanced console output with request details
+        let logMessage = `${colorCode}${prefix}${resetCode} ${message}`
+
+        if (method && path) {
+            logMessage += ` ${method} ${path}`
+        }
+
+        if (statusCode) {
+            const statusColor = statusCode >= 400 ? '\x1b[31m' : statusCode >= 300 ? '\x1b[33m' : '\x1b[32m'
+            logMessage += ` ${statusColor}${statusCode}${resetCode}`
+        }
+
+        if (duration !== undefined) {
+            const durationColor = duration > 1000 ? '\x1b[31m' : duration > 500 ? '\x1b[33m' : '\x1b[36m'
+            logMessage += ` ${durationColor}${duration}ms${resetCode}`
+        }
+
+        if (requestId) {
+            logMessage += ` [${requestId}]`
+        }
+
+        console.log(logMessage, data && Object.keys(data).length > 0 ? data : '')
+    }
+
+    // WebSocket logging methods
+    debug(category: string, message: string, data?: any, clientId?: string, userId?: string) {
+        this.log(LogLevel.DEBUG, category, message, data, clientId, userId)
+    }
+
+    info(category: string, message: string, data?: any, clientId?: string, userId?: string) {
+        this.log(LogLevel.INFO, category, message, data, clientId, userId)
+    }
+
+    warn(category: string, message: string, data?: any, clientId?: string, userId?: string) {
+        this.log(LogLevel.WARN, category, message, data, clientId, userId)
+    }
+
+    error(category: string, message: string, data?: any, clientId?: string, userId?: string) {
+        this.log(LogLevel.ERROR, category, message, data, clientId, userId)
+    }
+
+    // API logging methods
+    apiRequest(requestId: string, method: string, path: string, data?: any, userAgent?: string, ip?: string, userId?: string) {
+        this.log(LogLevel.INFO, 'API_REQUEST', 'Incoming request', data, undefined, userId, requestId, method, path, undefined, undefined, userAgent, ip)
+    }
+
+    apiResponse(requestId: string, method: string, path: string, statusCode: number, duration: number, data?: any, userId?: string) {
+        this.log(LogLevel.INFO, 'API_RESPONSE', 'Request completed', data, undefined, userId, requestId, method, path, statusCode, duration)
+    }
+
+    apiError(requestId: string, method: string, path: string, error: any, statusCode: number = 500, duration?: number, userId?: string) {
+        this.log(LogLevel.ERROR, 'API_ERROR', 'Request failed', {
+            error: error instanceof Error ? error.message : error,
+            stack: error instanceof Error ? error.stack : undefined
+        }, undefined, userId, requestId, method, path, statusCode, duration)
+    }
+
+    apiDebug(requestId: string, method: string, path: string, message: string, data?: any, userId?: string) {
+        this.log(LogLevel.DEBUG, 'API_DEBUG', message, data, undefined, userId, requestId, method, path)
+    }
+
+    apiWarn(requestId: string, method: string, path: string, message: string, data?: any, userId?: string) {
+        this.log(LogLevel.WARN, 'API_WARNING', message, data, undefined, userId, requestId, method, path)
+    }
+
+    getLogs(category?: string, level?: LogLevel): LogEntry[] {
+        return this.logs.filter(log => {
+            if (category && log.category !== category) return false
+            if (level !== undefined && log.level < level) return false
+            return true
+        })
+    }
+
+    getStats() {
+        const stats = {
+            totalLogs: this.logs.length,
+            byLevel: {} as Record<string, number>,
+            byCategory: {} as Record<string, number>,
+            byMethod: {} as Record<string, number>,
+            byStatusCode: {} as Record<string, number>,
+            recentActivity: this.logs.slice(-10),
+            averageResponseTime: 0,
+            errorRate: 0
+        }
+
+        let totalDuration = 0
+        let requestCount = 0
+        let errorCount = 0
+
+        this.logs.forEach(log => {
+            const levelStr = LogLevel[log.level]
+            stats.byLevel[levelStr] = (stats.byLevel[levelStr] || 0) + 1
+            stats.byCategory[log.category] = (stats.byCategory[log.category] || 0) + 1
+
+            if (log.method) {
+                stats.byMethod[log.method] = (stats.byMethod[log.method] || 0) + 1
+            }
+
+            if (log.statusCode) {
+                stats.byStatusCode[log.statusCode.toString()] = (stats.byStatusCode[log.statusCode.toString()] || 0) + 1
+                if (log.statusCode >= 400) errorCount++
+            }
+
+            if (log.duration !== undefined) {
+                totalDuration += log.duration
+                requestCount++
+            }
+        })
+
+        if (requestCount > 0) {
+            stats.averageResponseTime = Math.round(totalDuration / requestCount)
+            stats.errorRate = Math.round((errorCount / requestCount) * 100)
+        }
+
+        return stats
+    }
+}
+
+const appLogger = AppLogger.getInstance()
+
+// API Logging Middleware
+interface RequestContext {
+    requestId: string
+    startTime: number
+    method: string
+    path: string
+    userAgent?: string
+    ip?: string
+    userId?: string
+}
+
+function createApiLogger() {
+    return async (c: Context, next: () => Promise<void>) => {
+        const requestId = appLogger.generateRequestId()
+        const startTime = Date.now()
+        const method = c.req.method
+        const path = c.req.path
+        const userAgent = c.req.header('user-agent')
+        const ip = c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown'
+
+        // Extract userId from path params if available
+        let userId: string | undefined
+        try {
+            if (path.includes('/profile/')) {
+                userId = c.req.param('id')
+            } else if (path.includes('/target/')) {
+                userId = c.req.param('worldid')
+            } else if (path.includes('/points/')) {
+                userId = c.req.param('userId')
+            }
+        } catch (e) {
+            // Ignore param extraction errors
+        }
+
+        // Log incoming request
+        try {
+            appLogger.apiRequest(requestId, method, path, {}, userAgent, ip, userId)
+        } catch (e) {
+            console.log('Logging error:', e)
+        }
+
+        // Store context for response logging
+        (c as any).set('requestContext', {
+            requestId,
+            startTime,
+            method,
+            path,
+            userAgent,
+            ip,
+            userId
+        } as RequestContext)
+
+        try {
+            await next()
+
+            // Log successful response
+            const context = (c as any).get('requestContext') as RequestContext
+            const duration = Date.now() - context.startTime
+            const status = c.res?.status || 200
+
+            appLogger.apiResponse(context.requestId, context.method, context.path, status, duration, undefined, context.userId)
+        } catch (error: any) {
+            // Log error response
+            const context = (c as any).get('requestContext') as RequestContext
+            const duration = Date.now() - context.startTime
+            const status = error?.status || 500
+
+            appLogger.apiError(context.requestId, context.method, context.path, error, status, duration, context.userId)
+            throw error
+        }
+    }
+}
+
+// Performance metrics tracking
+interface PerformanceMetrics {
+    messageCount: number
+    lastMessageTime: number
+    messagesPerMinute: number
+    connectionCount: number
+    locationUpdateCount: number
+    userSelectionCount: number
+    broadcastCount: number
+}
+
+const performanceMetrics: PerformanceMetrics = {
+    messageCount: 0,
+    lastMessageTime: 0,
+    messagesPerMinute: 0,
+    connectionCount: 0,
+    locationUpdateCount: 0,
+    userSelectionCount: 0,
+    broadcastCount: 0
+}
+
+// Update performance metrics
+function updatePerformanceMetrics(type: 'message' | 'connection' | 'location' | 'selection' | 'broadcast') {
+    const now = Date.now()
+
+    switch (type) {
+        case 'message':
+            performanceMetrics.messageCount++
+            performanceMetrics.lastMessageTime = now
+            break
+        case 'connection':
+            performanceMetrics.connectionCount++
+            break
+        case 'location':
+            performanceMetrics.locationUpdateCount++
+            break
+        case 'selection':
+            performanceMetrics.userSelectionCount++
+            break
+        case 'broadcast':
+            performanceMetrics.broadcastCount++
+            break
+    }
+
+    // Calculate messages per minute (simple rolling average)
+    if (performanceMetrics.messageCount > 0 && performanceMetrics.lastMessageTime > 0) {
+        const timeDiff = now - (performanceMetrics.lastMessageTime - (performanceMetrics.messageCount * 1000))
+        if (timeDiff > 0) {
+            performanceMetrics.messagesPerMinute = Math.round((performanceMetrics.messageCount * 60000) / timeDiff)
+        }
+    }
+}
 
 const cookie = process.env.ETH_COOKIE
 const storage_path = "./etgl.json"
@@ -82,7 +431,7 @@ type PointsStorage = {
 }
 
 // WebSocket connection management
-const wsClients = new Set<WebSocket>()
+const wsClients = new Map<WebSocket, { id: string, connectedAt: number, lastActivity: number }>()
 const userLocations = new Map<string, UserLocation>()
 let selectedUsers: SelectedUsers = {
     male: null,
@@ -93,22 +442,78 @@ let selectedUsers: SelectedUsers = {
 // WebSocket server instance
 let wss: WebSocketServer | null = null
 
+// Generate unique client ID
+function generateClientId(): string {
+    return `client_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+}
+
 // WebSocket utility functions
 function broadcastToClients(message: WSMessage) {
     const messageStr = JSON.stringify(message)
-    wsClients.forEach(client => {
+    let sentCount = 0
+    let failedCount = 0
+
+    updatePerformanceMetrics('broadcast')
+
+    appLogger.debug('BROADCAST', `Broadcasting message type: ${message.type}`, {
+        messageType: message.type,
+        totalClients: wsClients.size
+    })
+
+    wsClients.forEach((clientInfo, client) => {
         if (client.readyState === WebSocket.OPEN) {
-            client.send(messageStr)
+            try {
+                client.send(messageStr)
+                sentCount++
+                clientInfo.lastActivity = Date.now()
+            } catch (error) {
+                appLogger.error('BROADCAST', `Failed to send message to client ${clientInfo.id}`, {
+                    error: error instanceof Error ? error.message : error,
+                    messageType: message.type
+                }, clientInfo.id)
+                failedCount++
+            }
+        } else {
+            appLogger.warn('BROADCAST', `Skipping inactive client ${clientInfo.id}`, {
+                readyState: client.readyState,
+                messageType: message.type
+            }, clientInfo.id)
+            failedCount++
         }
+    })
+
+    appLogger.info('BROADCAST', `Message broadcast completed`, {
+        messageType: message.type,
+        sentCount,
+        failedCount,
+        totalClients: wsClients.size,
+        totalBroadcasts: performanceMetrics.broadcastCount
     })
 }
 
 function removeInactiveClients() {
-    wsClients.forEach(client => {
+    const initialCount = wsClients.size
+    let removedCount = 0
+
+    wsClients.forEach((clientInfo, client) => {
         if (client.readyState !== WebSocket.OPEN) {
+            appLogger.info('CLEANUP', `Removing inactive client ${clientInfo.id}`, {
+                readyState: client.readyState,
+                connectedDuration: Date.now() - clientInfo.connectedAt,
+                lastActivity: clientInfo.lastActivity
+            }, clientInfo.id)
             wsClients.delete(client)
+            removedCount++
         }
     })
+
+    if (removedCount > 0) {
+        appLogger.info('CLEANUP', `Cleanup completed`, {
+            initialCount,
+            removedCount,
+            remainingCount: wsClients.size
+        })
+    }
 }
 
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -224,6 +629,8 @@ async function extractUserIdFromUrl(url: string): Promise<string | null> {
 
 async function selectRandomUsers() {
     try {
+        appLogger.info('USER_SELECTION', 'Starting random user selection process')
+
         const profiles = await getAllProfiles()
         const maleUsers: string[] = []
         const femaleUsers: string[] = []
@@ -237,17 +644,33 @@ async function selectRandomUsers() {
             }
         })
 
+        appLogger.debug('USER_SELECTION', 'User categorization completed', {
+            totalProfiles: Object.keys(profiles).length,
+            maleCount: maleUsers.length,
+            femaleCount: femaleUsers.length
+        })
+
         // Select random users
         const selectedMale = maleUsers.length > 0 ?
             maleUsers[Math.floor(Math.random() * maleUsers.length)] : null
         const selectedFemale = femaleUsers.length > 0 ?
             femaleUsers[Math.floor(Math.random() * femaleUsers.length)] : null
 
+        const previousSelection = { ...selectedUsers }
         selectedUsers = {
             male: selectedMale,
             female: selectedFemale,
             selectedAt: Date.now()
         }
+
+        appLogger.info('USER_SELECTION', 'New users selected', {
+            previousMale: previousSelection.male,
+            previousFemale: previousSelection.female,
+            newMale: selectedMale,
+            newFemale: selectedFemale,
+            maleChanged: previousSelection.male !== selectedMale,
+            femaleChanged: previousSelection.female !== selectedFemale
+        })
 
         // Broadcast the selection to all clients
         broadcastToClients({
@@ -257,103 +680,221 @@ async function selectRandomUsers() {
 
         // Also broadcast target location updates if locations are available
         if (selectedMale && userLocations.has(selectedMale)) {
+            const maleLocation = userLocations.get(selectedMale)
+            appLogger.debug('USER_SELECTION', `Broadcasting male target location update`, {
+                userId: selectedMale,
+                hasLocation: !!maleLocation
+            }, undefined, selectedMale)
+
             broadcastToClients({
                 type: 'target_update',
                 userId: selectedMale,
                 data: {
                     gender: 'M',
-                    location: userLocations.get(selectedMale)
+                    location: maleLocation
                 }
             })
         }
 
         if (selectedFemale && userLocations.has(selectedFemale)) {
+            const femaleLocation = userLocations.get(selectedFemale)
+            appLogger.debug('USER_SELECTION', `Broadcasting female target location update`, {
+                userId: selectedFemale,
+                hasLocation: !!femaleLocation
+            }, undefined, selectedFemale)
+
             broadcastToClients({
                 type: 'target_update',
                 userId: selectedFemale,
                 data: {
                     gender: 'F',
-                    location: userLocations.get(selectedFemale)
+                    location: femaleLocation
                 }
             })
         }
 
-        console.log('New users selected:', selectedUsers)
+        appLogger.info('USER_SELECTION', 'User selection process completed successfully')
     } catch (error) {
-        console.error('Error selecting random users:', error)
+        appLogger.error('USER_SELECTION', 'Error during user selection process', {
+            error: error instanceof Error ? error.message : error,
+            stack: error instanceof Error ? error.stack : undefined
+        })
     }
 }
 
 // Initialize WebSocket server
 function initializeWebSocketServer(port: number = 3002) {
     if (wss) {
-        console.log('WebSocket server already initialized')
+        appLogger.warn('SERVER', 'WebSocket server already initialized', { port })
         return wss
     }
 
-    wss = new WebSocketServer({ port })
+    appLogger.info('SERVER', 'Initializing WebSocket server', { port })
 
-    wss.on('connection', (ws: WebSocket) => {
-        console.log('New WebSocket connection established')
-        wsClients.add(ws)
+    try {
+        wss = new WebSocketServer({ port })
 
-        // Send current selected users to new client
-        ws.send(JSON.stringify({
-            type: 'selected_users',
-            data: selectedUsers
-        }))
+        wss.on('connection', (ws: WebSocket, request) => {
+            const clientId = generateClientId()
+            const clientInfo = {
+                id: clientId,
+                connectedAt: Date.now(),
+                lastActivity: Date.now()
+            }
 
-        // Send current user locations to new client
-        const locationData = Array.from(userLocations.values())
-        ws.send(JSON.stringify({
-            type: 'gps_update',
-            data: locationData
-        }))
+            wsClients.set(ws, clientInfo)
+            updatePerformanceMetrics('connection')
 
-        ws.on('message', (message: string) => {
+            appLogger.info('CONNECTION', 'New WebSocket connection established', {
+                clientId,
+                totalClients: wsClients.size,
+                totalConnections: performanceMetrics.connectionCount,
+                userAgent: request.headers['user-agent'],
+                origin: request.headers.origin,
+                remoteAddress: request.socket.remoteAddress
+            }, clientId)
+
+            // Send current selected users to new client
             try {
-                const wsMessage: WSMessage = JSON.parse(message)
-                handleWebSocketMessage(ws, wsMessage)
+                const selectedUsersMessage = JSON.stringify({
+                    type: 'selected_users',
+                    data: selectedUsers
+                })
+                ws.send(selectedUsersMessage)
+                appLogger.debug('CONNECTION', 'Sent initial selected users data to new client', {
+                    selectedUsers
+                }, clientId)
             } catch (error) {
-                console.error('Error parsing WebSocket message:', error)
+                appLogger.error('CONNECTION', 'Failed to send initial selected users data', {
+                    error: error instanceof Error ? error.message : error
+                }, clientId)
             }
-        })
 
-        ws.on('close', () => {
-            console.log('WebSocket connection closed')
-            wsClients.delete(ws)
-        })
-
-        ws.on('error', (error) => {
-            console.error('WebSocket error:', error)
-            wsClients.delete(ws)
-        })
-
-        // Send ping every 30 seconds to keep connection alive
-        const pingInterval = setInterval(() => {
-            if (ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'ping' }))
-            } else {
-                clearInterval(pingInterval)
+            // Send current user locations to new client
+            try {
+                const locationData = Array.from(userLocations.values())
+                const locationMessage = JSON.stringify({
+                    type: 'gps_update',
+                    data: locationData
+                })
+                ws.send(locationMessage)
+                appLogger.debug('CONNECTION', 'Sent initial location data to new client', {
+                    locationCount: locationData.length
+                }, clientId)
+            } catch (error) {
+                appLogger.error('CONNECTION', 'Failed to send initial location data', {
+                    error: error instanceof Error ? error.message : error
+                }, clientId)
             }
-        }, 30000)
-    })
 
-    console.log(`WebSocket server started on port ${port}`)
+            ws.on('message', (message: string) => {
+                try {
+                    clientInfo.lastActivity = Date.now()
+                    updatePerformanceMetrics('message')
 
-    // Clean up inactive clients every minute
-    setInterval(removeInactiveClients, 60000)
+                    const wsMessage: WSMessage = JSON.parse(message)
+                    appLogger.debug('MESSAGE_IN', `Received message: ${wsMessage.type}`, {
+                        messageType: wsMessage.type,
+                        userId: wsMessage.userId,
+                        hasData: !!wsMessage.data,
+                        totalMessages: performanceMetrics.messageCount,
+                        messagesPerMinute: performanceMetrics.messagesPerMinute
+                    }, clientId, wsMessage.userId)
 
-    // Select new users every 5 minutes
-    setInterval(selectRandomUsers, 5 * 60 * 1000)
+                    handleWebSocketMessage(ws, wsMessage, clientId)
+                } catch (error) {
+                    appLogger.error('MESSAGE_IN', 'Error parsing WebSocket message', {
+                        error: error instanceof Error ? error.message : error,
+                        rawMessage: message.substring(0, 200) // Truncate for logging
+                    }, clientId)
+                }
+            })
 
-    // Initial user selection
-    setTimeout(selectRandomUsers, 5000) // Wait 5 seconds for profiles to load
+            ws.on('close', (code, reason) => {
+                const connectionDuration = Date.now() - clientInfo.connectedAt
+                appLogger.info('CONNECTION', 'WebSocket connection closed', {
+                    clientId,
+                    closeCode: code,
+                    closeReason: reason?.toString(),
+                    connectionDuration,
+                    remainingClients: wsClients.size - 1
+                }, clientId)
+                wsClients.delete(ws)
+            })
 
-    return wss
+            ws.on('error', (error) => {
+                const connectionDuration = Date.now() - clientInfo.connectedAt
+                appLogger.error('CONNECTION', 'WebSocket connection error', {
+                    clientId,
+                    error: error.message,
+                    connectionDuration,
+                    remainingClients: wsClients.size - 1
+                }, clientId)
+                wsClients.delete(ws)
+            })
+
+            // Send ping every 30 seconds to keep connection alive
+            const pingInterval = setInterval(() => {
+                if (ws.readyState === WebSocket.OPEN) {
+                    try {
+                        ws.send(JSON.stringify({ type: 'ping' }))
+                        appLogger.debug('HEARTBEAT', 'Sent ping to client', {}, clientId)
+                    } catch (error) {
+                        appLogger.error('HEARTBEAT', 'Failed to send ping', {
+                            error: error instanceof Error ? error.message : error
+                        }, clientId)
+                        clearInterval(pingInterval)
+                    }
+                } else {
+                    appLogger.debug('HEARTBEAT', 'Clearing ping interval for inactive client', {
+                        readyState: ws.readyState
+                    }, clientId)
+                    clearInterval(pingInterval)
+                }
+            }, 30000)
+        })
+
+        wss.on('error', (error) => {
+            appLogger.error('SERVER', 'WebSocket server error', {
+                error: error.message,
+                port
+            })
+        })
+
+        appLogger.info('SERVER', 'WebSocket server started successfully', {
+            port,
+            timestamp: new Date().toISOString()
+        })
+
+        // Clean up inactive clients every minute
+        setInterval(() => {
+            appLogger.debug('MAINTENANCE', 'Running periodic client cleanup')
+            removeInactiveClients()
+        }, 60000)
+
+        // Select new users every 5 minutes
+        setInterval(() => {
+            appLogger.debug('MAINTENANCE', 'Running periodic user selection')
+            selectRandomUsers()
+        }, 5 * 60 * 1000)
+
+        // Initial user selection
+        setTimeout(() => {
+            appLogger.info('MAINTENANCE', 'Running initial user selection')
+            selectRandomUsers()
+        }, 5000) // Wait 5 seconds for profiles to load
+
+        return wss
+    } catch (error) {
+        appLogger.error('SERVER', 'Failed to initialize WebSocket server', {
+            error: error instanceof Error ? error.message : error,
+            port
+        })
+        throw error
+    }
 }
 
-function handleWebSocketMessage(ws: WebSocket, message: WSMessage) {
+function handleWebSocketMessage(ws: WebSocket, message: WSMessage, clientId: string) {
     switch (message.type) {
         case 'gps_update':
             if (message.userId && message.data) {
@@ -363,7 +904,17 @@ function handleWebSocketMessage(ws: WebSocket, message: WSMessage) {
                     lastUpdated: Date.now()
                 }
 
+                const previousLocation = userLocations.get(message.userId)
                 userLocations.set(message.userId, userLocation)
+                updatePerformanceMetrics('location')
+
+                appLogger.info('GPS_UPDATE', 'Location updated for user', {
+                    userId: message.userId,
+                    coordinates: message.data,
+                    hadPreviousLocation: !!previousLocation,
+                    totalLocations: userLocations.size,
+                    totalLocationUpdates: performanceMetrics.locationUpdateCount
+                }, clientId, message.userId)
 
                 // Broadcast location update to all other clients
                 broadcastToClients({
@@ -374,6 +925,12 @@ function handleWebSocketMessage(ws: WebSocket, message: WSMessage) {
 
                 // If this user is a selected target, also broadcast target update
                 if (message.userId && (message.userId === selectedUsers.male || message.userId === selectedUsers.female)) {
+                    appLogger.debug('GPS_UPDATE', 'User is a selected target, broadcasting target update', {
+                        userId: message.userId,
+                        isSelectedMale: message.userId === selectedUsers.male,
+                        isSelectedFemale: message.userId === selectedUsers.female
+                    }, clientId, message.userId)
+
                     getAllProfiles().then(profiles => {
                         const userProfile = profiles[message.userId!]
                         const gender = userProfile?.user?.gender
@@ -387,44 +944,86 @@ function handleWebSocketMessage(ws: WebSocket, message: WSMessage) {
                             }
                         })
                     }).catch(error => {
-                        console.error('Error getting profiles for target update:', error)
+                        appLogger.error('GPS_UPDATE', 'Error getting profiles for target update', {
+                            error: error instanceof Error ? error.message : error,
+                            userId: message.userId
+                        }, clientId, message.userId)
                     })
                 }
-
-                console.log(`GPS update from user ${message.userId}:`, message.data)
+            } else {
+                appLogger.warn('GPS_UPDATE', 'Invalid GPS update message - missing userId or data', {
+                    hasUserId: !!message.userId,
+                    hasData: !!message.data
+                }, clientId, message.userId)
             }
             break
 
         case 'user_selection':
             if (message.userId && message.data?.selectedUserId) {
+                updatePerformanceMetrics('selection')
+
+                appLogger.info('USER_SELECTION', 'User selection attempt', {
+                    selectorId: message.userId,
+                    selectedUserId: message.data.selectedUserId,
+                    totalSelections: performanceMetrics.userSelectionCount
+                }, clientId, message.userId)
+
                 // Verify proximity before confirming selection
                 const selectorLocation = userLocations.get(message.userId)
                 const selectedLocation = userLocations.get(message.data.selectedUserId)
 
-                if (selectorLocation && selectedLocation) {
-                    const distance = calculateDistance(
-                        selectorLocation.coordinates.latitude,
-                        selectorLocation.coordinates.longitude,
-                        selectedLocation.coordinates.latitude,
-                        selectedLocation.coordinates.longitude
-                    )
+                if (!selectorLocation || !selectedLocation) {
+                    appLogger.warn('USER_SELECTION', 'Location data missing for proximity verification', {
+                        selectorId: message.userId,
+                        selectedUserId: message.data.selectedUserId,
+                        hasSelectorLocation: !!selectorLocation,
+                        hasSelectedLocation: !!selectedLocation
+                    }, clientId, message.userId)
+                    return
+                }
 
-                    // Allow selection if users are within 100 meters
-                    if (distance <= 100) {
-                        console.log(`User ${message.userId} selected ${message.data.selectedUserId} (distance: ${distance.toFixed(2)}m)`)
+                const distance = calculateDistance(
+                    selectorLocation.coordinates.latitude,
+                    selectorLocation.coordinates.longitude,
+                    selectedLocation.coordinates.latitude,
+                    selectedLocation.coordinates.longitude
+                )
 
-                        // Broadcast successful selection
-                        broadcastToClients({
-                            type: 'user_selection',
-                            userId: message.userId,
-                            data: {
-                                selectedUserId: message.data.selectedUserId,
-                                confirmed: true,
-                                distance: distance
-                            }
-                        })
-                    } else {
-                        // Send rejection back to selector
+                appLogger.debug('USER_SELECTION', 'Proximity calculated', {
+                    selectorId: message.userId,
+                    selectedUserId: message.data.selectedUserId,
+                    distance: distance,
+                    threshold: 100
+                }, clientId, message.userId)
+
+                // Allow selection if users are within 100 meters
+                if (distance <= 100) {
+                    appLogger.info('USER_SELECTION', 'User selection confirmed - within proximity', {
+                        selectorId: message.userId,
+                        selectedUserId: message.data.selectedUserId,
+                        distance: distance.toFixed(2)
+                    }, clientId, message.userId)
+
+                    // Broadcast successful selection
+                    broadcastToClients({
+                        type: 'user_selection',
+                        userId: message.userId,
+                        data: {
+                            selectedUserId: message.data.selectedUserId,
+                            confirmed: true,
+                            distance: distance
+                        }
+                    })
+                } else {
+                    appLogger.warn('USER_SELECTION', 'User selection rejected - too far away', {
+                        selectorId: message.userId,
+                        selectedUserId: message.data.selectedUserId,
+                        distance: distance.toFixed(2),
+                        threshold: 100
+                    }, clientId, message.userId)
+
+                    // Send rejection back to selector
+                    try {
                         ws.send(JSON.stringify({
                             type: 'user_selection',
                             data: {
@@ -434,17 +1033,29 @@ function handleWebSocketMessage(ws: WebSocket, message: WSMessage) {
                                 distance: distance
                             }
                         }))
+                    } catch (error) {
+                        appLogger.error('USER_SELECTION', 'Failed to send rejection message', {
+                            error: error instanceof Error ? error.message : error
+                        }, clientId, message.userId)
                     }
                 }
+            } else {
+                appLogger.warn('USER_SELECTION', 'Invalid user selection message - missing userId or selectedUserId', {
+                    hasUserId: !!message.userId,
+                    hasSelectedUserId: !!message.data?.selectedUserId
+                }, clientId, message.userId)
             }
             break
 
         case 'pong':
-            // Handle pong response
+            appLogger.debug('HEARTBEAT', 'Received pong from client', {}, clientId, message.userId)
             break
 
         default:
-            console.log('Unknown message type:', message.type)
+            appLogger.warn('MESSAGE_IN', 'Unknown message type received', {
+                messageType: message.type,
+                userId: message.userId
+            }, clientId, message.userId)
     }
 }
 
@@ -570,6 +1181,9 @@ function getProfile(key: string): any | null {
 }
 
 const etgl = new Hono()
+
+// Apply logging middleware to all routes
+etgl.use('*', createApiLogger())
 
 async function getAllProfiles(): Promise<AllProfiles> {
     try {
@@ -854,42 +1468,55 @@ async function fetchProfileData(url: string, userid: string, existingProfile?: a
     }
 }
 
-// Basic health check endpoints
+// Profile endpoints with enhanced logging
 etgl.get('/etgl/profile/:id', async (c) => {
+    const context = (c as any).get('requestContext') as RequestContext
     const userid = c.req.param('id')
     const url = `https://ethglobal.com/connect/${userid}`
 
-    console.log("Fetching profile for", userid)
+    appLogger.apiDebug(context.requestId, context.method, context.path, "Fetching profile", { userid })
 
-    // Check cache first
-    const cachedProfile = getProfile(userid)
-    if (cachedProfile) {
-        console.log("Returning cached profile and refreshing in background")
+    try {
+        // Check cache first
+        const cachedProfile = getProfile(userid)
+        if (cachedProfile) {
+            appLogger.apiDebug(context.requestId, context.method, context.path, "Returning cached profile", {
+                userid,
+                cacheHit: true,
+                lastUpdated: cachedProfile.lastUpdated
+            })
 
-        // Start background refresh (don't await)
-        fetchProfileData(url, userid, cachedProfile).then(freshData => {
-            if (freshData) {
-                console.log("Background refresh completed for", userid)
-                saveProfile(userid, freshData)
-            } else {
-                console.log("Background refresh failed for", userid)
-            }
-        }).catch(error => {
-            console.error("Background refresh error for", userid, error)
-        })
+            // Start background refresh (don't await)
+            fetchProfileData(url, userid, cachedProfile).then(freshData => {
+                if (freshData) {
+                    appLogger.apiDebug(context.requestId, context.method, context.path, "Background refresh completed", { userid })
+                    saveProfile(userid, freshData)
+                } else {
+                    appLogger.apiWarn(context.requestId, context.method, context.path, "Background refresh failed", { userid })
+                }
+            }).catch(error => {
+                appLogger.apiError(context.requestId, context.method, context.path, error, 500, undefined, userid)
+            })
 
-        return c.json(cachedProfile)
-    }
+            return c.json(cachedProfile)
+        }
 
-    // No cache found, fetch fresh data
-    const freshData = await fetchProfileData(url, userid)
+        // No cache found, fetch fresh data
+        appLogger.apiDebug(context.requestId, context.method, context.path, "Cache miss, fetching fresh data", { userid })
+        const freshData = await fetchProfileData(url, userid)
 
-    if (freshData) {
-        // Save to cache
-        saveProfile(userid, freshData)
-        return c.json(freshData)
-    } else {
-        return c.json({ error: 'ETHGlobal New Delhi data not found' }, 404)
+        if (freshData) {
+            // Save to cache
+            saveProfile(userid, freshData)
+            appLogger.apiDebug(context.requestId, context.method, context.path, "Fresh data retrieved and cached", { userid })
+            return c.json(freshData)
+        } else {
+            appLogger.apiWarn(context.requestId, context.method, context.path, "Profile data not found", { userid })
+            return c.json({ error: 'ETHGlobal New Delhi data not found' }, 404)
+        }
+    } catch (error) {
+        appLogger.apiError(context.requestId, context.method, context.path, error, 500, undefined, userid)
+        return c.json({ error: 'Failed to fetch profile data' }, 500)
     }
 })
 
@@ -1012,41 +1639,70 @@ etgl.get('/etgl/profile-all', async (c) => {
 })
 
 etgl.post("/etgl/set-gender/:id", async (c) => {
+    const context = (c as any).get('requestContext') as RequestContext
     const userid = c.req.param('id')
 
-    // Get data from request body
-    let requestData
     try {
-        requestData = await c.req.json()
+        // Get data from request body
+        let requestData
+        try {
+            requestData = await c.req.json()
+        } catch (error) {
+            appLogger.apiWarn(context.requestId, context.method, context.path, "Invalid JSON in request body", { userid })
+            return c.json({ error: 'Invalid JSON in request body' }, 400)
+        }
+
+        const gender = requestData.gender as Gender
+        const worldid = requestData.worldid as string
+
+        appLogger.apiDebug(context.requestId, context.method, context.path, "Setting gender", {
+            userid,
+            gender,
+            hasWorldid: !!worldid
+        })
+
+        const avlGenders: Gender[] = ["M", "F"]
+        if (!gender) {
+            appLogger.apiWarn(context.requestId, context.method, context.path, "Missing gender parameter", { userid })
+            return c.json({ error: 'Gender parameter is required in request body' }, 400)
+        }
+        if (!avlGenders.includes(gender)) {
+            appLogger.apiWarn(context.requestId, context.method, context.path, "Invalid gender parameter", { userid, gender })
+            return c.json({ error: 'Invalid gender parameter, should be M/F' }, 400)
+        }
+
+        const profile = getProfile(userid)
+        appLogger.apiDebug(context.requestId, context.method, context.path, "Profile lookup", {
+            userid,
+            profileFound: !!profile
+        })
+
+        if (!profile) {
+            appLogger.apiWarn(context.requestId, context.method, context.path, "Profile not found", { userid })
+            return c.json({ error: 'Profile not found' }, 404)
+        }
+
+        const result = setGender(userid, gender, worldid)
+        if (!result) {
+            appLogger.apiError(context.requestId, context.method, context.path, "Failed to set gender", 500, undefined, userid)
+            return c.json({ error: 'Failed to set gender' }, 500)
+        }
+
+        appLogger.apiDebug(context.requestId, context.method, context.path, "Gender set successfully", {
+            userid,
+            gender,
+            worldid: worldid || null
+        })
+
+        return c.json({
+            message: 'Gender set successfully',
+            gender: gender,
+            worldid: worldid || null
+        })
     } catch (error) {
-        return c.json({ error: 'Invalid JSON in request body' }, 400)
-    }
-
-    const gender = requestData.gender as Gender
-    const worldid = requestData.worldid as string
-
-    console.log("Setting gender for", userid, "to", gender, "with worldid:", worldid)
-
-    const avlGenders: Gender[] = ["M", "F"]
-    if (!gender) { return c.json({ error: 'Gender parameter is required in request body' }, 400) }
-    if (!avlGenders.includes(gender)) { return c.json({ error: 'Invalid gender parameter, should be M/F' }, 400) }
-
-    const profile = getProfile(userid)
-    console.log("Profile found:", profile ? "Yes" : "No")
-    if (!profile) {
-        return c.json({ error: 'Profile not found' }, 404)
-    }
-
-    const result = setGender(userid, gender, worldid)
-    if (!result) {
+        appLogger.apiError(context.requestId, context.method, context.path, error, 500, undefined, userid)
         return c.json({ error: 'Failed to set gender' }, 500)
     }
-
-    return c.json({
-        message: 'Gender set successfully',
-        gender: gender,
-        worldid: worldid || null
-    })
 })
 
 etgl.get("/etgl/id-by-worldid/:worldid", async (c) => {
@@ -1098,12 +1754,41 @@ etgl.get("/etgl/id-by-worldid/:worldid", async (c) => {
 
 // WebSocket management endpoints
 etgl.get('/etgl/ws/status', async (c) => {
+    const now = Date.now()
+    const clientStats = Array.from(wsClients.values()).map(client => ({
+        id: client.id,
+        connectedAt: client.connectedAt,
+        lastActivity: client.lastActivity,
+        connectionDuration: now - client.connectedAt,
+        idleDuration: now - client.lastActivity
+    }))
+
     return c.json({
-        wsServer: wss ? 'running' : 'not initialized',
-        connectedClients: wsClients.size,
-        activeLocations: userLocations.size,
+        server: {
+            status: wss ? 'running' : 'not initialized',
+            port: 3002,
+            uptime: wss ? now - (clientStats[0]?.connectedAt || now) : 0
+        },
+        connections: {
+            total: wsClients.size,
+            clients: clientStats
+        },
+        locations: {
+            active: userLocations.size,
+            users: Array.from(userLocations.keys())
+        },
         selectedUsers: selectedUsers,
-        port: 3002
+        performance: performanceMetrics,
+        logging: {
+            totalLogs: appLogger.getLogs().length,
+            logStats: appLogger.getStats()
+        },
+        api: {
+            totalRequests: appLogger.getStats().byCategory['API_REQUEST'] || 0,
+            totalErrors: appLogger.getStats().byCategory['API_ERROR'] || 0,
+            averageResponseTime: appLogger.getStats().averageResponseTime,
+            errorRate: appLogger.getStats().errorRate
+        }
     })
 })
 
@@ -1143,16 +1828,174 @@ etgl.get('/etgl/ws/selected', async (c) => {
 })
 
 etgl.post('/etgl/ws/select-new', async (c) => {
+    const context = (c as any).get('requestContext') as RequestContext
+
     try {
+        appLogger.apiDebug(context.requestId, context.method, context.path, "Manual user selection triggered")
         selectRandomUsers()
+
+        appLogger.apiDebug(context.requestId, context.method, context.path, "User selection completed", {
+            selectedMale: selectedUsers.male,
+            selectedFemale: selectedUsers.female
+        })
+
         return c.json({
             message: 'New users selected',
             selectedUsers: selectedUsers
         })
     } catch (error) {
-        console.error('Error selecting new users:', error)
+        appLogger.apiError(context.requestId, context.method, context.path, error, 500)
         return c.json({ error: 'Failed to select new users' }, 500)
     }
+})
+
+// Comprehensive Logging endpoints
+etgl.get('/etgl/logs', async (c) => {
+    const context = (c as any).get('requestContext') as RequestContext
+
+    try {
+        const category = c.req.query('category')
+        const level = c.req.query('level')
+        const limit = parseInt(c.req.query('limit') || '100')
+
+        appLogger.apiDebug(context.requestId, context.method, context.path, "Retrieving logs", {
+            category: category || 'all',
+            level: level || 'all',
+            limit
+        })
+
+        let logs = appLogger.getLogs(category, level ? parseInt(level) : undefined)
+
+        // Apply limit
+        if (limit > 0) {
+            logs = logs.slice(-limit)
+        }
+
+        return c.json({
+            logs: logs,
+            total: logs.length,
+            filters: {
+                category: category || 'all',
+                level: level || 'all',
+                limit: limit
+            },
+            stats: appLogger.getStats()
+        })
+    } catch (error) {
+        appLogger.apiError(context.requestId, context.method, context.path, error, 500)
+        return c.json({ error: 'Failed to retrieve logs' }, 500)
+    }
+})
+
+// Legacy WebSocket logs endpoint (for backward compatibility)
+etgl.get('/etgl/ws/logs', async (c) => {
+    return c.redirect('/etgl/logs?category=BROADCAST,CONNECTION,GPS_UPDATE,USER_SELECTION,HEARTBEAT,MESSAGE_IN,CLEANUP,MAINTENANCE,SERVER')
+})
+
+etgl.get('/etgl/ws/logs/stats', async (c) => {
+    try {
+        return c.json(appLogger.getStats())
+    } catch (error) {
+        return c.json({ error: 'Failed to retrieve log stats' }, 500)
+    }
+})
+
+etgl.post('/etgl/logs/level', async (c) => {
+    const context = (c as any).get('requestContext') as RequestContext
+
+    try {
+        const { level } = await c.req.json()
+
+        if (typeof level !== 'number' || level < 0 || level > 3) {
+            appLogger.apiWarn(context.requestId, context.method, context.path, "Invalid log level provided", { level })
+            return c.json({ error: 'Invalid log level. Must be 0 (DEBUG), 1 (INFO), 2 (WARN), or 3 (ERROR)' }, 400)
+        }
+
+        const previousLevel = appLogger['logLevel']
+        appLogger.setLogLevel(level)
+        appLogger.info('API_CONFIG', `Log level changed from ${LogLevel[previousLevel]} to ${LogLevel[level]}`, {
+            previousLevel,
+            newLevel: level,
+            requestId: context.requestId
+        })
+
+        return c.json({
+            message: 'Log level updated successfully',
+            previousLevel,
+            newLevel: level,
+            levelName: LogLevel[level]
+        })
+    } catch (error) {
+        appLogger.apiError(context.requestId, context.method, context.path, error, 500)
+        return c.json({ error: 'Failed to update log level' }, 500)
+    }
+})
+
+// Legacy endpoint for backward compatibility
+etgl.post('/etgl/ws/logs/level', async (c) => {
+    return c.redirect('/etgl/logs/level', 307) // Temporary redirect with method preservation
+})
+
+etgl.get('/etgl/metrics', async (c) => {
+    const context = (c as any).get('requestContext') as RequestContext
+
+    try {
+        const now = Date.now()
+        const uptime = wss ? now - performanceMetrics.lastMessageTime : 0
+        const stats = appLogger.getStats()
+
+        appLogger.apiDebug(context.requestId, context.method, context.path, "Retrieving comprehensive metrics")
+
+        return c.json({
+            websocket: {
+                performance: performanceMetrics,
+                realtime: {
+                    activeConnections: wsClients.size,
+                    activeLocations: userLocations.size,
+                    serverUptime: uptime,
+                    timestamp: now
+                },
+                rates: {
+                    messagesPerMinute: performanceMetrics.messagesPerMinute,
+                    connectionsPerHour: Math.round((performanceMetrics.connectionCount * 3600000) / Math.max(uptime, 1)),
+                    locationsPerMinute: Math.round((performanceMetrics.locationUpdateCount * 60000) / Math.max(uptime, 1))
+                }
+            },
+            api: {
+                requests: {
+                    total: stats.byCategory['API_REQUEST'] || 0,
+                    errors: stats.byCategory['API_ERROR'] || 0,
+                    warnings: stats.byCategory['API_WARNING'] || 0,
+                    debug: stats.byCategory['API_DEBUG'] || 0
+                },
+                performance: {
+                    averageResponseTime: stats.averageResponseTime,
+                    errorRate: stats.errorRate
+                },
+                methods: stats.byMethod,
+                statusCodes: stats.byStatusCode
+            },
+            logging: {
+                totalLogs: stats.totalLogs,
+                byLevel: stats.byLevel,
+                byCategory: stats.byCategory,
+                recentActivity: stats.recentActivity
+            },
+            system: {
+                timestamp: now,
+                uptime: uptime,
+                logLevel: LogLevel[appLogger['logLevel']]
+            }
+        })
+    } catch (error) {
+        appLogger.apiError(context.requestId, context.method, context.path, error, 500)
+        return c.json({ error: 'Failed to retrieve metrics' }, 500)
+    }
+})
+
+// Legacy WebSocket metrics endpoint
+etgl.get('/etgl/ws/metrics', async (c) => {
+    return c.redirect('/etgl/metrics')
 })
 
 // Target endpoint - returns coordinates for opposite gender (using worldid)
