@@ -356,6 +356,15 @@ function saveProfile(key: string, data: any) {
             console.log(`Preserving existing gender data (${existingProfile.user.gender}) for key: ${key}`)
         }
 
+        // Preserve existing worldid data if it exists and new data doesn't have worldid
+        if (existingProfile?.user?.worldid && !updatedData.user?.worldid) {
+            if (!updatedData.user) {
+                updatedData.user = {}
+            }
+            updatedData.user.worldid = existingProfile.user.worldid
+            console.log(`Preserving existing worldid data (${existingProfile.user.worldid}) for key: ${key}`)
+        }
+
         // Add/update the profile data with timestamp
         profiles[key] = {
             ...updatedData,
@@ -455,7 +464,7 @@ async function getAllProfilesByUrl(): Promise<AllProfiles> {
 }
 
 // Function to fetch and parse profile data
-async function fetchProfileData(url: string, userid: string): Promise<any | null> {
+async function fetchProfileData(url: string, userid: string, existingProfile?: any): Promise<any | null> {
     try {
         const response = await axios.get(url, {
             headers: {
@@ -665,7 +674,10 @@ async function fetchProfileData(url: string, userid: string): Promise<any | null
                         title: rawUserData.user.title,
                         bio: rawUserData.user.bio,
                         avatar: rawUserData.user.avatar,
-                        gender: rawUserData.user.gender || null // Include gender from raw data
+                        // Preserve existing gender if available, otherwise use raw data
+                        gender: existingProfile?.user?.gender || rawUserData.user.gender || null,
+                        // Preserve existing worldid if available
+                        worldid: existingProfile?.user?.worldid
                     },
                     // Include additional event data that might be useful
                     event: rawUserData.event
@@ -701,7 +713,7 @@ etgl.get('/etgl/profile/:id', async (c) => {
         console.log("Returning cached profile and refreshing in background")
 
         // Start background refresh (don't await)
-        fetchProfileData(url, userid).then(freshData => {
+        fetchProfileData(url, userid, cachedProfile).then(freshData => {
             if (freshData) {
                 console.log("Background refresh completed for", userid)
                 saveProfile(userid, freshData)
@@ -749,7 +761,7 @@ etgl.get('/etgl/profile', async (c) => {
                     maxRedirects: 5,
                 })
                 const id = response.request.path.split("/")[2] as string
-                const freshData = await fetchProfileData(`https://ethglobal.com/connect/${id}`, id)
+                const freshData = await fetchProfileData(`https://ethglobal.com/connect/${id}`, id, cachedProfile)
 
                 if (freshData) {
                     console.log("Background refresh completed for URL", decodedUrl)
