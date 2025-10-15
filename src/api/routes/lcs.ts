@@ -14,15 +14,14 @@ lcs.get('/cat/process', (c) => {
     return c.text(process)
 })
 
-lcs.post('/cat/respawn', async (c) => {
-    // if (!fs.existsSync(filepath)) {
-    //     fs.writeFileSync(filepath, '')
-    // }
-    // const process = (await c.req.json()).process || ''
-    // console.log(process)
-    // fs.writeFileSync(filepath, process)
-    // return c.text(process)
-    return c.status(501)
+lcs.post('/cat/process', async (c) => {
+    if (!fs.existsSync(filepath)) {
+        fs.writeFileSync(filepath, '')
+    }
+    const process = (await c.req.json()).process || ''
+    console.log(process)
+    fs.writeFileSync(filepath, process)
+    return c.text(process)
 })
 
 export default lcs
