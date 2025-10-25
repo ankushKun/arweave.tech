@@ -2,9 +2,20 @@ import { Hono } from 'hono'
 import fs from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
+import { connect, createSigner } from '@permaweb/aoconnect'
+import Arweave from 'arweave'
+import { AO } from '@/utils/ao'
 
 const filepath = join(homedir(), '.subspace.txt')
 const subspace = new Hono()
+const ar = Arweave.init({
+    host: "arweave.net",
+    port: 443,
+    protocol: "https",
+})
+const wallet = await ar.wallets.generate()
+const signer = createSigner(wallet)
+const ao = new AO({ signer, GATEWAY_URL: "https://arweave.tech", HB_URL: "https://hb.arweave.tech" })
 
 function verifyBasicAuth(authHeader: string) {
     if (!authHeader || !authHeader.startsWith('Basic ')) {
@@ -26,40 +37,20 @@ subspace.get('/subspace/process', (c) => {
 })
 
 subspace.post('/subspace/respawn', async (c) => {
-    return c.status(501)
-})
+    const srcUrl = "https://raw.githubusercontent.com/subspace-dev/sdk/refs/heads/hb/logic/subspace.lua"
+    const src = await fetch(srcUrl).then(res => res.text())
+    console.log(src)
 
-subspace.post('/subspace/waitlist', async (c) => {
-    const email = (await c.req.json()).email || ''
-    if (!email) {
-        return c.status(400)
+    const spawnedProcess = await ao.spawn({})
+    const runRes = await ao.runLua({ processId: spawnedProcess, code: src })
+    console.log(runRes)
+
+    // if run was successful, write the process id to the file
+    if (runRes.status === 200) {
+        fs.writeFileSync(filepath, runRes.process)
     }
-    const sheetdb = "https://sheetdb.io/api/v1/konjhejkzjff3"
 
-    try {
-        const response = await fetch(sheetdb, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                data: {
-                    email: email,
-                    time: new Date().toISOString()
-                }
-            })
-        })
-
-        if (!response.ok) {
-            throw new Error(`SheetDB API error: ${response.status}`)
-        }
-
-        const result = await response.json()
-        return c.json({ success: true, data: result })
-    } catch (error) {
-        console.error('Error adding to waitlist:', error)
-        return c.status(500)
-    }
+    return c.text(runRes.process)
 })
 
 export default subspace
