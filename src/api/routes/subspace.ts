@@ -5,6 +5,8 @@ import { join } from 'path'
 import { connect, createSigner } from '@permaweb/aoconnect'
 import Arweave from 'arweave'
 import { AO } from '@/utils/ao'
+import { StatusCode } from 'hono/utils/http-status'
+import { HTTPException } from 'hono/http-exception'
 
 const filepath = join(homedir(), '.subspace.txt')
 const subspace = new Hono()
@@ -39,11 +41,9 @@ subspace.get('/subspace/process', (c) => {
 subspace.post('/subspace/respawn', async (c) => {
     const srcUrl = "https://raw.githubusercontent.com/subspace-dev/sdk/refs/heads/hb/logic/subspace.lua"
     const src = await fetch(srcUrl).then(res => res.text())
-    console.log(src)
 
     const spawnedProcess = await ao.spawn({})
     const runRes = await ao.runLua({ processId: spawnedProcess, code: src })
-    console.log(runRes)
 
     // if run was successful, write the process id to the file
     if (runRes.status === 200) {
@@ -51,6 +51,29 @@ subspace.post('/subspace/respawn', async (c) => {
     }
 
     return c.text(runRes.process)
+})
+
+subspace.post('/subspace/spawn-dm-process', async (c) => {
+    const body = await c.req.json()
+    const { owner } = body
+
+    if (owner.length !== 43 || !/^[A-Za-z0-9_-]{43}$/.test(owner)) {
+        throw new HTTPException(400, { message: "Invalid owner address" })
+    }
+
+    const dmUrl = "https://raw.githubusercontent.com/subspace-dev/sdk/refs/heads/hb/logic/dms.lua"
+    let dmSrc = await fetch(dmUrl).then(res => res.text())
+    const subspaceProcessId = fs.readFileSync(filepath, 'utf8') || ''
+    dmSrc = `owner = "${owner}"\n\n`
+    dmSrc = dmSrc.replace("<<SUBSPACE>>", subspaceProcessId)
+
+    const spawnedProcess = await ao.spawn({})
+    const runRes = await ao.runLua({ processId: spawnedProcess, code: dmSrc })
+    if (runRes.status === 200) {
+        return c.text(spawnedProcess)
+    } else {
+        return c.status(runRes.status as StatusCode)
+    }
 })
 
 export default subspace
